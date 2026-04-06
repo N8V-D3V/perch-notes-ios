@@ -1,1 +1,33 @@
+# macOS
 .DS_Store
+
+# Xcode user-specific files
+xcuserdata/
+*.xcuserdatad
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+
+# Legacy Xcode user state
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# Build products
+DerivedData/
+build/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Archives and symbols
+*.ipa
+*.dSYM
+*.dSYM.zip

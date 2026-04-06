@@ -41,3 +41,13 @@ Your role is to produce work that:
 - is consistent
 - is predictable
 - strictly follows defined contracts
+
+---
+
+## Commit Format
+
+Commits should be structured like:
+
+- Title -> `ADD/REMOVE/UPDATE/FIX/BUMP: <short description>`
+- Description -> Human friendly and accurate description
+- `BUMP` commits are for version bumps and should look like: `BUMP: vx.x.x`
