@@ -51,3 +51,32 @@ Commits should be structured like:
 - Title -> `ADD/REMOVE/UPDATE/FIX/BUMP: <short description>`
 - Description -> Human friendly and accurate description
 - `BUMP` commits are for version bumps and should look like: `BUMP: vx.x.x`
+
+---
+
+## Orchestrator Reporting Requirement
+
+After completing any task, you MUST report back to the Orchestrator.
+
+You MUST use the report format defined in:
+
+`docs/cop/report-template.md`
+
+---
+
+## Rules
+
+- Do not skip reporting
+- Do not use unstructured summaries
+- Follow the report template exactly
+- Ensure all sections are completed
+
+---
+
+## Purpose
+
+This ensures:
+
+- visibility across agents
+- consistent handoffs
+- better decision-making by the orchestrator
