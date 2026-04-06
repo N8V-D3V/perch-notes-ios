@@ -37,12 +37,12 @@ Define how the system lists saved sessions and returns a selected saved session 
 - session_id: string - stable identifier for the saved session
 - saved_at: string - timestamp of the successful save
 - note_count: integer - number of notes in the saved session
-- audio_available: boolean - whether playable audio is present for replay
 
 ### SavedSessionsList
 - sessions: [SessionSummary] - selectable saved session summaries
 - total_count: integer - number of summaries returned
 - status: string - `HAS_RESULTS` or `EMPTY`
+- ordering: string - `NEWEST_FIRST`
 
 ### SavedSessionSelectionRequest
 - session_id: string - identifier of the saved session the user wants to open
@@ -57,9 +57,10 @@ Define how the system lists saved sessions and returns a selected saved session 
 ## 6. Success Behavior
 
 1. When browsing is requested, the system must return a `SavedSessionsList` representing all selectable saved sessions available to the user.
-2. If no saved sessions exist, the system must return an empty list with status `EMPTY`.
-3. When a selection request is provided, the system must validate that the requested `session_id` is currently selectable.
-4. A valid selection must return a successful `SavedSessionSelectionResult` containing the selected `session_id`.
+2. The saved session list must be ordered newest first by `saved_at`.
+3. If no saved sessions exist, the system must return an empty list with status `EMPTY`.
+4. When a selection request is provided, the system must validate that the requested `session_id` is currently selectable.
+5. A valid selection must return a successful `SavedSessionSelectionResult` containing the selected `session_id`.
 
 ---
 
@@ -71,7 +72,7 @@ Define how the system lists saved sessions and returns a selected saved session 
 - Condition: A selection request references a session that is not selectable
   - System must: Return `SAVED_SESSION_NOT_FOUND`
 
-- Condition: A saved session exists but is not complete enough to be replayed
+- Condition: A saved session exists but is not complete enough to produce a replay-ready session
   - System must: Exclude it from the selectable list or return `SAVED_SESSION_UNAVAILABLE` when selected
 
 ---
@@ -121,6 +122,7 @@ Define how the system lists saved sessions and returns a selected saved session 
 ## 11. Acceptance Criteria
 
 - [ ] A browse request returns all currently selectable saved session summaries
+- [ ] Saved session summaries are ordered newest first by `saved_at`
 - [ ] When no saved sessions exist, the response is an empty list with explicit empty status
 - [ ] Selecting a listed `session_id` returns a successful selection result
 - [ ] Selecting a non-selectable `session_id` fails explicitly
@@ -130,6 +132,6 @@ Define how the system lists saved sessions and returns a selected saved session 
 
 ## 12. Open Questions
 
-- What default ordering should the saved session list use in v0.1?
-- Should browse results include any additional summary metadata beyond save time, note count, and audio availability?
+- How should ties be ordered when two saved sessions have the same `saved_at` value?
+- Should browse results include any additional summary metadata beyond save time and note count?
 - Will pagination or filtering be required in v0.1?

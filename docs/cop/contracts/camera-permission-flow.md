@@ -6,7 +6,7 @@ Status: Draft
 ---
 
 ## 1. Purpose
-Define how the system requests camera access, resolves approval or denial, supports retry, and provides a fallback path when camera access is not available.
+Define how the system requests camera access, resolves approval or denial, supports retry, and provides a fallback path when camera-based image acquisition is not available.
 
 ---
 
@@ -60,8 +60,8 @@ Define how the system requests camera access, resolves approval or denial, suppo
 
 1. When camera-based acquisition is requested and the current permission state is `UNKNOWN`, the system must request a permission decision.
 2. If the permission response is `APPROVED`, the system must resolve the permission state to `GRANTED`, mark camera capture as available, and keep fallback image selection available.
-3. If the permission response is `DENIED`, the system must resolve the permission state to `DENIED`, mark camera capture as unavailable, and keep fallback image selection available.
-4. If the user chooses `RETRY` after a denied or unresolved result, the system must evaluate the current permission state again and attempt the permission flow without changing prior denial or approval outcomes implicitly.
+3. If the permission response is `DENIED`, the system must resolve the permission state to `DENIED`, block camera capture, and keep fallback image selection available.
+4. If the user chooses `RETRY` after a denied or unresolved result, the system must evaluate the current permission state again and attempt the permission flow without implicitly granting camera capture.
 5. If the user chooses `FALLBACK`, the system must end the permission flow with camera capture unavailable and fallback image selection available.
 
 ---
@@ -126,7 +126,7 @@ Define how the system requests camera access, resolves approval or denial, suppo
 - [ ] When the starting permission state is `UNKNOWN`, the system requests a permission decision
 - [ ] An approved response results in `GRANTED` with camera capture available
 - [ ] A denied response results in `DENIED` with camera capture unavailable and fallback available
-- [ ] A retry action reevaluates the permission flow without implicitly changing prior outcomes
+- [ ] A retry action reevaluates the permission flow without implicitly enabling camera capture
 - [ ] A fallback action completes the flow with camera capture unavailable and non-camera acquisition available
 - [ ] An unresolved permission flow returns an explicit failure result
 

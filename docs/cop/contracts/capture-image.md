@@ -6,7 +6,7 @@ Status: Draft
 ---
 
 ## 1. Purpose
-Define how the system acquires a single source image either by capturing a new image or selecting an existing image.
+Define how the system acquires a single source image either by capturing a new image or selecting an existing image as the first artifact in a session flow.
 
 ---
 
@@ -59,7 +59,8 @@ Define how the system acquires a single source image either by capturing a new i
 2. If the acquisition method is `CAPTURE_NEW_IMAGE`, the system must require the camera permission state to be `GRANTED` before acquisition can proceed.
 3. If the acquisition method is `SELECT_EXISTING_IMAGE`, the system must allow acquisition without requiring camera permission.
 4. When acquisition returns exactly one valid image, the system must produce one `SourceImage` and return a successful acquisition result.
-5. If the user initiates a new acquisition request after a cancellation or failure, the system must treat it as a new independent acquisition attempt.
+5. A successfully acquired `SourceImage` must be the only valid upstream image input for note generation.
+6. If the user initiates a new acquisition request after a cancellation or failure, the system must treat it as a new independent acquisition attempt.
 
 ---
 
@@ -80,6 +81,9 @@ Define how the system acquires a single source image either by capturing a new i
 - Condition: The returned image cannot be treated as a valid source image
   - System must: Return `INVALID_SOURCE_IMAGE`
 
+- Condition: The acquisition action fails before a valid image is returned
+  - System must: Return `IMAGE_ACQUISITION_FAILED`
+
 ---
 
 ## 8. Edge Cases
@@ -88,6 +92,7 @@ Define how the system acquires a single source image either by capturing a new i
 - Selecting an existing image after camera denial must remain valid
 - A failed capture attempt followed by a successful selection attempt must return only the successful source image
 - An acquisition response marked `COMPLETED` with a missing image reference must be treated as invalid
+- When acquisition fails or is cancelled, no source image must be produced and downstream note generation must remain blocked
 
 ---
 
@@ -132,6 +137,7 @@ Define how the system acquires a single source image either by capturing a new i
 - [ ] A completed acquisition with exactly one valid image returns one `SourceImage`
 - [ ] A cancelled acquisition returns an explicit cancellation result
 - [ ] An acquisition response with zero or multiple images fails explicitly
+- [ ] A failed acquisition does not produce a `SourceImage`
 - [ ] Retrying acquisition after cancellation or failure is treated as a new attempt
 
 ---

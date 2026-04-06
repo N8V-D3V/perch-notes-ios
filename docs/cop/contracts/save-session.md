@@ -33,26 +33,35 @@ Define how the system saves a completed session so it can later be browsed and r
 - image_id: string - stable identifier for the acquired image
 - image_reference: string - reference to the acquired image content
 
+### NoteEvent
+- order_index: integer - left-to-right event position within the sequence
+- pitch_rank: integer - relative pitch value assigned from vertical bird position
+- start_offset_units: integer - uniform start position within the sequence timeline
+- duration_units: integer - uniform duration assigned to the event
+
 ### NoteSequence
 - source_image_id: string - identifier of the image that originated the sequence
 - note_count: integer - number of note events in the sequence
+- events: [NoteEvent] - ordered note events in the sequence
 
 ### GeneratedAudio
 - audio_id: string - stable identifier for the generated audio artifact
 - source_image_id: string - identifier of the originating image
 - note_count: integer - number of notes represented in the audio
+- loopable: boolean - whether the audio is valid for repeated playback
 - audio_reference: string - reference to the generated audio content
 
+### CompletedSession
+- source_image: SourceImage - image used for the session
+- note_sequence: NoteSequence - full note sequence generated from the source image
+- generated_audio: GeneratedAudio - playable audio generated from the note sequence
+
 ### SaveSessionRequest
-- source_image: SourceImage - image used for the completed session
-- note_sequence: NoteSequence - note data produced from the image
-- generated_audio: GeneratedAudio - audio produced from the note sequence
+- completed_session: CompletedSession - completed session requested for saving
 
 ### SavedSessionRecord
 - session_id: string - stable identifier for the saved session
-- source_image: SourceImage - saved source image artifact
-- note_sequence: NoteSequence - saved note sequence artifact
-- generated_audio: GeneratedAudio - saved generated audio artifact
+- completed_session: CompletedSession - completed session stored in the saved session
 - saved_at: string - timestamp of the successful save
 
 ### SaveSessionResult
@@ -63,21 +72,25 @@ Define how the system saves a completed session so it can later be browsed and r
 
 ## 6. Success Behavior
 
-1. The system must accept a save request only when source image, note sequence, and generated audio are all present.
-2. The system must validate that the note sequence references the submitted source image and that the generated audio references the same originating image.
-3. When validation succeeds, the system must create one complete `SavedSessionRecord` containing the submitted artifacts.
-4. A successful save must return a stable `session_id`.
-5. A successfully saved session must become available to browse and replay flows.
+1. The system must accept a save request only when one completed session exists.
+2. The system must validate that the completed session contains source image, note sequence, and generated audio artifacts.
+3. The system must validate that the note sequence references the source image, that the generated audio references the same originating image, and that the generated audio is loopable.
+4. Each explicit user save request must create one new `SavedSessionRecord`, even when the submitted completed session matches a previously saved session.
+5. A successful save must return a new stable `session_id` and a `saved_at` timestamp.
+6. A successfully saved session must become available to browse and replay flows.
 
 ---
 
 ## 7. Failure Modes
 
-- Condition: One or more required session artifacts are missing
-  - System must: Return `INCOMPLETE_SESSION`
+- Condition: The submitted completed session is missing one or more required artifacts
+  - System must: Return `INCOMPLETE_COMPLETED_SESSION`
 
 - Condition: The submitted artifacts do not reference the same originating session data
   - System must: Return `SESSION_ARTIFACT_MISMATCH`
+
+- Condition: The submitted completed session does not include loopable generated audio
+  - System must: Return `INVALID_COMPLETED_SESSION`
 
 - Condition: The system cannot persist the session record
   - System must: Return `SESSION_SAVE_FAILED`
@@ -89,7 +102,7 @@ Define how the system saves a completed session so it can later be browsed and r
 
 ## 8. Edge Cases
 
-- Repeating a save request for the same submitted artifacts must produce an explicit success or failure result and must not be silently ignored
+- Repeating a save request for the same completed session must create a distinct saved session with a distinct `session_id`
 - A save request with valid image and note data but missing audio must fail explicitly
 - A save request with audio derived from a different originating image must fail explicitly
 - A partially created saved session record must not be returned as a successful result
@@ -101,7 +114,7 @@ Define how the system saves a completed session so it can later be browsed and r
 - Must not introduce behavior outside this contract
 - Must not bypass defined interfaces
 - Must follow system-level rules
-- Must define saving completed session artifacts only
+- Must define saving completed sessions only
 - Must not generate notes or audio
 - Must not define browsing, replay, or sharing behavior beyond making a successful save available to those flows
 
@@ -130,8 +143,10 @@ Define how the system saves a completed session so it can later be browsed and r
 ## 11. Acceptance Criteria
 
 - [ ] A save request succeeds only when source image, note sequence, and generated audio are all present
+- [ ] A save request succeeds only when the submitted generated audio is loopable
 - [ ] A save request fails explicitly when submitted artifacts do not belong to the same originating session data
 - [ ] A successful save returns one complete `SavedSessionRecord` with a stable `session_id`
+- [ ] Repeating an explicit save of the same completed session creates a new saved session with a new `session_id`
 - [ ] A successful save makes the session available for later browse and replay flows
 - [ ] A partially persisted session is never returned as a successful result
 
@@ -139,6 +154,5 @@ Define how the system saves a completed session so it can later be browsed and r
 
 ## 12. Open Questions
 
-- Should repeated saves of the same completed session create distinct saved sessions or resolve as a single saved record?
 - Should a saved session include any additional user-visible metadata beyond the required artifacts and save timestamp?
 - Are there retention limits or save quotas for v0.1?

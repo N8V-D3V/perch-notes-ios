@@ -6,7 +6,7 @@ Status: Draft
 ---
 
 ## 1. Purpose
-Define how the system transforms one source image of birds on a powerline into a deterministic note sequence.
+Define how the system transforms one source image of birds on a powerline into a deterministic note sequence for a completed session.
 
 ---
 
@@ -39,9 +39,9 @@ Define how the system transforms one source image of birds on a powerline into a
 
 ### NoteEvent
 - order_index: integer - left-to-right event position within the sequence
-- pitch_rank: integer - relative pitch value assigned from bird position
-- start_offset_units: integer - relative start position within the sequence timeline
-- duration_units: integer - relative duration assigned to the event
+- pitch_rank: integer - relative pitch value assigned from vertical bird position, where a bird higher on the image receives a higher `pitch_rank`
+- start_offset_units: integer - uniform start position within the sequence timeline, where each value matches the event `order_index`
+- duration_units: integer - uniform duration assigned to the event, fixed to `1` for every note in v0.1
 
 ### NoteSequence
 - source_image_id: string - identifier of the image used to produce the sequence
@@ -57,39 +57,40 @@ Define how the system transforms one source image of birds on a powerline into a
 ## 6. Success Behavior
 
 1. The system must accept exactly one `SourceImage` per note generation request.
-2. The system must evaluate whether the image contains one deterministically interpretable bird-on-powerline pattern.
-3. If the image contains a usable pattern, the system must derive one `NoteEvent` for each detected bird included in that pattern.
-4. The system must order note events from left to right based on bird position in the image.
-5. The system must assign `pitch_rank` values deterministically from bird position relative to the interpreted powerline pattern.
-6. The system must assign `start_offset_units` and `duration_units` deterministically for every generated note event.
-7. The same `SourceImage` submitted under the same contract rules must produce the same `NoteSequence`.
+2. The system must evaluate whether the image contains at least one valid powerline with birds that can be interpreted as note events.
+3. If multiple valid powerlines are visible, the system must select the single most prominent valid powerline.
+4. If a single most prominent valid powerline is selected, the system must derive one `NoteEvent` for each detected bird included on that powerline.
+5. The system must order note events from left to right based on horizontal bird position.
+6. The system must assign `pitch_rank` values from vertical bird position, where a bird higher on the image receives a higher `pitch_rank`.
+7. The system must use uniform timing for v0.1, with `start_offset_units` equal to `order_index` and `duration_units` equal to `1` for every generated note event.
+8. The same `SourceImage` submitted under the same contract rules must produce the same `NoteSequence`.
 
 ---
 
 ## 7. Failure Modes
 
-- Condition: The image does not contain a usable powerline pattern
-  - System must: Return `NO_USABLE_POWERLINE_PATTERN`
+- Condition: The image does not contain a valid powerline that can be used for note generation
+  - System must: Return `NO_VALID_POWERLINE`
 
-- Condition: The image does not contain any birds that can be included in the interpreted pattern
+- Condition: The selected powerline does not contain any birds that can be included in the interpreted pattern
   - System must: Return `NO_BIRDS_DETECTED`
 
-- Condition: The image contains multiple plausible patterns and the system cannot deterministically choose one
-  - System must: Return `AMBIGUOUS_IMAGE_PATTERN`
-
-- Condition: The system cannot assign deterministic timing values to generated events
-  - System must: Return `UNDEFINED_NOTE_TIMING`
+- Condition: Multiple valid powerlines are visible and the system cannot select a single most prominent valid powerline unambiguously
+  - System must: Return `AMBIGUOUS_POWERLINE_SELECTION`
 
 - Condition: The source image cannot be analyzed for note generation
   - System must: Return `IMAGE_ANALYSIS_FAILED`
+
+- Condition: Two or more birds cannot be assigned a deterministic left-to-right order
+  - System must: Return `AMBIGUOUS_NOTE_ORDER`
 
 ---
 
 ## 8. Edge Cases
 
 - A source image with exactly one detectable bird must still produce a one-note sequence if all other requirements are met
-- Birds detected outside the interpreted powerline pattern must not be included in the resulting note sequence
-- Two birds with the same horizontal position must still receive a deterministic order or produce an explicit failure if deterministic ordering is not possible
+- Birds detected outside the selected powerline must not be included in the resulting note sequence
+- Two birds with the same horizontal position must still receive a deterministic order or produce `AMBIGUOUS_NOTE_ORDER`
 - Two birds with the same vertical position may share the same `pitch_rank`
 
 ---
@@ -131,17 +132,17 @@ Define how the system transforms one source image of birds on a powerline into a
 
 - [ ] A valid source image produces exactly one deterministic `NoteSequence`
 - [ ] The number of generated note events matches the number of birds included in the interpreted pattern
-- [ ] Note events are ordered from left to right
-- [ ] Each note event includes deterministic pitch and timing values
-- [ ] An image with no usable powerline pattern fails explicitly
+- [ ] Note events are ordered from left to right by horizontal bird position
+- [ ] `pitch_rank` is determined by vertical bird position, where a higher bird receives a higher `pitch_rank`
+- [ ] `start_offset_units` is equal to `order_index` for every note event
+- [ ] `duration_units` is equal to `1` for every note event
+- [ ] An image with no valid powerline fails explicitly
 - [ ] An image with no detectable birds fails explicitly
-- [ ] An ambiguous image pattern fails explicitly rather than producing a non-deterministic sequence
+- [ ] Multiple powerlines without a single unambiguous most prominent valid powerline fail explicitly
 
 ---
 
 ## 12. Open Questions
 
-- What exact rule should determine `pitch_rank` values in v0.1?
-- What exact rule should determine `start_offset_units` and `duration_units` in v0.1?
-- How should multiple powerlines be handled when more than one appears visually valid?
+- What criteria determine which powerline is the single most prominent valid powerline?
 - What is the minimum image quality required for analysis to be considered valid?

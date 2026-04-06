@@ -6,12 +6,12 @@ Status: Draft
 ---
 
 ## 1. Purpose
-Define the application entry point, the set of user-visible screens, and the valid navigation paths between those screens.
+Define the application entry point, the set of user-visible screens, and the valid navigation paths for creating a completed session, browsing saved sessions, and reopening a replay-ready session.
 
 ---
 
 ## 2. Actors
-- User - navigates between screens to capture an image, review generated output, browse saved sessions, and replay saved sessions
+- User - navigates between screens to capture an image, review a completed session, browse saved sessions, and reopen a replay-ready session
 - System - maintains the current screen and enforces valid navigation paths
 
 ---
@@ -43,6 +43,9 @@ Define the application entry point, the set of user-visible screens, and the val
 - current_screen: string - active screen
 - previous_screen: string | null - most recent prior screen if one exists
 - allowed_actions: [string] - navigation actions that are valid from the active screen
+- has_source_image: boolean - whether a source image exists for the current session flow
+- has_completed_session: boolean - whether note generation and audio generation have both succeeded for the current session flow
+- has_selected_saved_session: boolean - whether a valid saved session has been selected for replay
 
 ### NavigationResult
 - status: string - `SUCCESS` or `REJECTED`
@@ -55,12 +58,15 @@ Define the application entry point, the set of user-visible screens, and the val
 
 1. On application launch, the system must enter the `Home` screen.
 2. From `Home`, the user must be able to navigate to `Image Acquisition` and `Saved Sessions`.
-3. From `Image Acquisition`, the user must be able to navigate to `Camera Permission` when camera access is required, or proceed to `Processing` after a valid image has been acquired.
+3. From `Image Acquisition`, the user must be able to navigate to `Camera Permission` when camera-based acquisition requires camera access resolution.
 4. From `Camera Permission`, the user must be able to return to `Image Acquisition` after permission is resolved or fallback is chosen.
-5. From `Processing`, the system must navigate to `Generated Session` when note generation and audio generation both complete successfully.
-6. From `Generated Session`, the user must be able to remain on the same screen while invoking replay, save, and share behaviors, and must be able to navigate back to `Home`.
-7. From `Saved Sessions`, the user must be able to navigate to `Saved Session Replay` after selecting a saved session.
-8. From `Saved Session Replay`, the user must be able to navigate back to `Saved Sessions` and `Home`.
+5. From `Image Acquisition`, the user must be able to proceed to `Processing` only after a valid source image has been acquired.
+6. From `Processing`, the system must navigate to `Generated Session` only after note generation and audio generation both succeed and a completed session exists.
+7. `Generated Session` must represent one completed session and allow the user to remain on that screen while invoking replay, save, and share behaviors for that completed session.
+8. From `Generated Session`, the user must be able to navigate back to `Home`.
+9. From `Saved Sessions`, the user must be able to navigate to `Saved Session Replay` only after a valid saved session has been selected.
+10. `Saved Session Replay` must open with a replay-ready session and must not begin playback automatically.
+11. From `Saved Session Replay`, the user must be able to navigate back to `Saved Sessions` and `Home`.
 
 ---
 
@@ -81,8 +87,9 @@ Define the application entry point, the set of user-visible screens, and the val
 
 - Back navigation requested from `Home` must leave the user on `Home`
 - Direct navigation to `Processing` must be rejected when no acquired image exists
-- Direct navigation to `Generated Session` must be rejected when generated output does not exist
+- Direct navigation to `Generated Session` must be rejected when no completed session exists
 - Direct navigation to `Saved Session Replay` must be rejected when no saved session has been selected
+- Entering `Saved Session Replay` must not change replay state from `READY` to active playback automatically
 
 ---
 
@@ -124,9 +131,11 @@ Define the application entry point, the set of user-visible screens, and the val
 - [ ] From `Home`, the user can navigate to `Image Acquisition`
 - [ ] From `Home`, the user can navigate to `Saved Sessions`
 - [ ] From `Image Acquisition`, the user can reach `Camera Permission` when camera access is required
-- [ ] From `Image Acquisition`, the user can reach `Processing` only after a valid image has been acquired
-- [ ] From `Processing`, successful generation leads to `Generated Session`
-- [ ] From `Saved Sessions`, selecting a saved session leads to `Saved Session Replay`
+- [ ] From `Image Acquisition`, the user can reach `Processing` only after a valid source image has been acquired
+- [ ] From `Processing`, successful note generation and audio generation lead to `Generated Session`
+- [ ] `Generated Session` represents a completed session
+- [ ] From `Saved Sessions`, selecting a valid saved session leads to `Saved Session Replay`
+- [ ] `Saved Session Replay` opens in a replay-ready state and does not begin playback automatically
 - [ ] Invalid direct navigation to screens with missing prerequisite context is rejected with an explicit reason
 
 ---

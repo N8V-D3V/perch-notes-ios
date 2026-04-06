@@ -6,7 +6,7 @@ Status: Draft
 ---
 
 ## 1. Purpose
-Define how the system shares generated audio without requiring the session to be saved first.
+Define how the system shares generated audio that already exists for a completed session or replay-ready session, without requiring that session to be saved first.
 
 ---
 
@@ -33,6 +33,7 @@ Define how the system shares generated audio without requiring the session to be
 - audio_id: string - stable identifier for the generated audio artifact
 - source_image_id: string - identifier of the originating image
 - note_count: integer - number of notes represented in the audio
+- loopable: boolean - whether the audio is valid for repeated playback
 - audio_reference: string - reference to the generated audio content
 
 ### ShareGeneratedAudioRequest
@@ -51,10 +52,11 @@ Define how the system shares generated audio without requiring the session to be
 ## 6. Success Behavior
 
 1. The system must accept one `GeneratedAudio` artifact per share request.
-2. The system must validate that the submitted generated audio is present and shareable.
-3. When validation succeeds, the system must produce one `ShareableAudio` artifact for that generated audio.
-4. A successful share flow must return `SUCCESS`.
-5. Sharing generated audio must not require that the session has been saved previously.
+2. Sharing must be allowed only when generated audio already exists.
+3. The system must validate that the submitted generated audio is present and shareable.
+4. When validation succeeds, the system must produce one `ShareableAudio` artifact for that generated audio.
+5. A successful share flow must return `SUCCESS`.
+6. Sharing generated audio must not require that the session has been saved previously.
 
 ---
 
@@ -62,6 +64,9 @@ Define how the system shares generated audio without requiring the session to be
 
 - Condition: The share request does not include generated audio
   - System must: Return `MISSING_GENERATED_AUDIO`
+
+- Condition: The submitted generated audio is not valid for sharing
+  - System must: Return `INVALID_GENERATED_AUDIO`
 
 - Condition: The submitted audio cannot be prepared for sharing
   - System must: Return `SHARE_PREPARATION_FAILED`
@@ -77,6 +82,7 @@ Define how the system shares generated audio without requiring the session to be
 ## 8. Edge Cases
 
 - The same generated audio may be shared more than once through separate share requests
+- Generated audio may be shared whether it comes from a completed session or a replay-ready session
 - Generated audio may be shared whether or not it has been saved as part of a session
 - A share request made while audio playback is active must not invalidate the generated audio being shared
 - A successful share must not modify the generated audio artifact
@@ -122,6 +128,7 @@ Define how the system shares generated audio without requiring the session to be
 - [ ] A share request with valid generated audio produces one `ShareableAudio` artifact
 - [ ] A completed share flow returns `SUCCESS`
 - [ ] A share request without generated audio fails explicitly
+- [ ] Sharing is blocked when generated audio does not already exist
 - [ ] Exiting the share flow before completion returns `CANCELLED`
 - [ ] Sharing does not require the originating session to be saved first
 - [ ] Sharing does not modify the generated audio artifact

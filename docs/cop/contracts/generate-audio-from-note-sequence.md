@@ -32,9 +32,9 @@ Define how the system transforms a deterministic note sequence into playable, lo
 
 ### NoteEvent
 - order_index: integer - event position within the note sequence
-- pitch_rank: integer - relative pitch value
-- start_offset_units: integer - relative start position within the sequence timeline
-- duration_units: integer - relative event duration
+- pitch_rank: integer - relative pitch value derived from vertical bird position
+- start_offset_units: integer - uniform start position within the sequence timeline, where each value matches the event `order_index`
+- duration_units: integer - uniform event duration, fixed to `1` for every note in v0.1
 
 ### NoteSequence
 - source_image_id: string - identifier of the image that originated the sequence
@@ -60,14 +60,18 @@ Define how the system transforms a deterministic note sequence into playable, lo
 ## 6. Success Behavior
 
 1. The system must accept one `NoteSequence` per audio generation request.
-2. The system must validate that the note sequence contains at least one note event and that each event has non-negative start and positive duration values.
-3. The system must render all note events into one playable audio artifact that preserves the event order and timing defined by the note sequence.
-4. The system must produce audio marked as loopable.
-5. The same `NoteSequence` submitted under the same contract rules must produce the same `GeneratedAudio`.
+2. The system must proceed only when a non-empty `NoteSequence` exists from successful upstream note generation.
+3. The system must validate that the note sequence contains at least one note event, that `note_count` matches the number of events, that `order_index` values are sequential, that `start_offset_units` equals `order_index`, and that `duration_units` equals `1` for every event.
+4. The system must render all note events into one playable audio artifact that preserves the event order and uniform timing defined by the note sequence.
+5. The system must produce audio marked as loopable.
+6. The same `NoteSequence` submitted under the same contract rules must produce the same `GeneratedAudio`.
 
 ---
 
 ## 7. Failure Modes
+
+- Condition: No note sequence is available for audio generation
+  - System must: Return `MISSING_NOTE_SEQUENCE`
 
 - Condition: The note sequence is empty
   - System must: Return `EMPTY_NOTE_SEQUENCE`
@@ -86,7 +90,7 @@ Define how the system transforms a deterministic note sequence into playable, lo
 ## 8. Edge Cases
 
 - A one-note sequence must still produce playable, loopable audio
-- Multiple note events with the same `start_offset_units` must be represented without changing their defined timing
+- Multiple note events with the same `start_offset_units` must fail explicitly because v0.1 timing is uniform and sequential
 - Gaps between note events must be preserved in the generated audio
 - A note sequence with non-sequential `order_index` values must fail explicitly
 
@@ -129,9 +133,10 @@ Define how the system transforms a deterministic note sequence into playable, lo
 ## 11. Acceptance Criteria
 
 - [ ] A valid non-empty `NoteSequence` produces one playable `GeneratedAudio` artifact
-- [ ] Generated audio preserves the event order and timing defined by the note sequence
+- [ ] Generated audio preserves the event order and uniform timing defined by the note sequence
 - [ ] Successful output is explicitly marked as loopable
 - [ ] The same valid note sequence generates the same audio output under the same contract rules
+- [ ] Audio generation fails explicitly when no note sequence is available
 - [ ] An empty note sequence fails explicitly
 - [ ] Invalid note timing fails explicitly
 

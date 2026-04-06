@@ -6,7 +6,7 @@ Status: Draft
 ---
 
 ## 1. Purpose
-Define how the system reopens a previously saved session and makes its saved audio replayable.
+Define how the system reopens a previously saved session and returns it in a replay-ready state.
 
 ---
 
@@ -22,7 +22,7 @@ Define how the system reopens a previously saved session and makes its saved aud
 ---
 
 ## 4. Outputs
-- replay_session: ReplaySession | null - reopened session data when replay succeeds
+- replay_ready_session: ReplayReadySession | null - reopened replay-ready session when replay succeeds
 - replay_saved_session_result: ReplaySavedSessionResult - explicit replay outcome
 
 ---
@@ -36,22 +36,33 @@ Define how the system reopens a previously saved session and makes its saved aud
 - image_id: string - stable identifier for the acquired image
 - image_reference: string - reference to the acquired image content
 
+### NoteEvent
+- order_index: integer - left-to-right event position within the sequence
+- pitch_rank: integer - relative pitch value assigned from vertical bird position
+- start_offset_units: integer - uniform start position within the sequence timeline
+- duration_units: integer - uniform duration assigned to the event
+
 ### NoteSequence
 - source_image_id: string - identifier of the image that originated the sequence
 - note_count: integer - number of note events in the sequence
+- events: [NoteEvent] - ordered note events in the sequence
 
 ### GeneratedAudio
 - audio_id: string - stable identifier for the generated audio artifact
 - source_image_id: string - identifier of the originating image
 - note_count: integer - number of notes represented in the audio
+- loopable: boolean - whether the audio is valid for repeated playback
 - audio_reference: string - reference to the generated audio content
 
-### ReplaySession
-- session_id: string - identifier of the reopened saved session
+### CompletedSession
 - source_image: SourceImage - saved source image artifact
-- note_sequence: NoteSequence - saved note sequence artifact
+- note_sequence: NoteSequence - full saved note sequence artifact
 - generated_audio: GeneratedAudio - saved audio artifact
-- replay_status: string - `READY` or `PLAYING`
+
+### ReplayReadySession
+- session_id: string - identifier of the reopened saved session
+- completed_session: CompletedSession - completed session reopened from the saved session
+- replay_status: string - `READY`
 
 ### ReplaySavedSessionResult
 - status: string - `SUCCESS` or `FAILED`
@@ -62,10 +73,12 @@ Define how the system reopens a previously saved session and makes its saved aud
 ## 6. Success Behavior
 
 1. The system must accept one saved `session_id` per replay request.
-2. The system must validate that the saved session exists and contains the source image, note sequence, and generated audio required for replay.
-3. When validation succeeds, the system must return one `ReplaySession` containing the saved artifacts for that session.
-4. The system must make the saved generated audio replayable without requiring note regeneration or audio regeneration.
-5. A replay request made again for the same saved session must reopen that same saved session rather than creating a new one.
+2. The system must validate that the saved session exists and contains one complete completed session with source image, note sequence, and generated audio required for replay.
+3. When validation succeeds, the system must return one `ReplayReadySession` for that saved session.
+4. The reopened saved session must be returned with `replay_status` set to `READY`.
+5. Reopening a saved session for replay must not begin playback automatically.
+6. The system must make the saved generated audio available for manual replay without requiring note regeneration or audio regeneration.
+7. A replay request made again for the same saved session must reopen that same saved session rather than creating a new one.
 
 ---
 
@@ -89,8 +102,8 @@ Define how the system reopens a previously saved session and makes its saved aud
 
 - Replaying the same saved session multiple times must continue to reference the same `session_id`
 - A saved session with valid metadata but missing audio content must fail explicitly
-- A saved session that can be opened but not transitioned to `PLAYING` state must not be reported as a successful replay start
-- Replay must remain possible even when the source image and note sequence are not being modified
+- A reopened saved session must remain in `READY` state until a separate replay action occurs
+- Replay must remain possible even when the completed session artifacts are not being modified
 
 ---
 
@@ -102,6 +115,7 @@ Define how the system reopens a previously saved session and makes its saved aud
 - Must define reopening and replaying a saved session only
 - Must not regenerate notes or audio
 - Must not save, browse, edit, or share saved sessions
+- Must return replay-ready state without automatic playback
 
 ---
 
@@ -109,28 +123,28 @@ Define how the system reopens a previously saved session and makes its saved aud
 
 ### Events
 - `SavedSessionReplayRequested`
-- `SavedSessionReplayLoaded`
-- `SavedSessionReplayStarted`
+- `SavedSessionReplayReady`
 - `SavedSessionReplayFailed`
 
 ### Metrics
 - Count of replay requests
-- Count of successful replay loads
-- Count of successful replay starts
+- Count of successful replay-ready session loads
 - Count of replay failures by failure reason
 
 ### Logs
 - Requested saved session identifier
 - Replay validation outcome
-- Replay status transition
+- Replay-ready status returned
 - Failure reason when replay does not succeed
 
 ---
 
 ## 11. Acceptance Criteria
 
-- [ ] A replay request with a valid saved `session_id` returns one `ReplaySession`
+- [ ] A replay request with a valid saved `session_id` returns one `ReplayReadySession`
 - [ ] Successful replay does not require note regeneration or audio regeneration
+- [ ] Successful replay returns `replay_status` equal to `READY`
+- [ ] Successful replay does not begin playback automatically
 - [ ] Missing saved sessions fail explicitly
 - [ ] Incomplete saved sessions fail explicitly
 - [ ] Replay failures caused by unavailable saved audio fail explicitly
@@ -140,6 +154,5 @@ Define how the system reopens a previously saved session and makes its saved aud
 
 ## 12. Open Questions
 
-- Should reopening a saved session automatically start playback, or only make playback available?
 - Should replay expose the saved source image and note data to the user alongside audio playback in v0.1?
 - Should replay preserve the last known playback position, or always restart from the beginning?
