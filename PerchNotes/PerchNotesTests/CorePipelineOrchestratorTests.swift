@@ -13,7 +13,7 @@ struct CorePipelineOrchestratorTests {
     func pipelineSucceedsWhenAllStubModulesSucceed() {
         let logger = LogCollector()
         let orchestrator = CorePipelineOrchestrator(
-            imageProvider: ImageProviderModule(),
+            imageProvider: ImageProviderModule(mode: .demoCompatible),
             noteGenerator: NoteGeneratorModule(),
             audioGenerator: AudioGeneratorModule(),
             logHandler: logger.record
@@ -49,7 +49,7 @@ struct CorePipelineOrchestratorTests {
         let noteGenerator = TrackingNoteGenerator(output: .success)
         let audioGenerator = TrackingAudioGenerator(output: .success)
         let orchestrator = CorePipelineOrchestrator(
-            imageProvider: ImageProviderModule(),
+            imageProvider: ImageProviderModule(mode: .demoCompatible),
             noteGenerator: noteGenerator,
             audioGenerator: audioGenerator,
             logHandler: { _ in }
@@ -75,7 +75,7 @@ struct CorePipelineOrchestratorTests {
         let noteGenerator = TrackingNoteGenerator(output: .failure(.IMAGE_ANALYSIS_FAILED))
         let audioGenerator = TrackingAudioGenerator(output: .success)
         let orchestrator = CorePipelineOrchestrator(
-            imageProvider: ImageProviderModule(),
+            imageProvider: ImageProviderModule(mode: .demoCompatible),
             noteGenerator: noteGenerator,
             audioGenerator: audioGenerator,
             logHandler: { _ in }
@@ -102,7 +102,7 @@ struct CorePipelineOrchestratorTests {
         let noteGenerator = TrackingNoteGenerator(output: .success)
         let audioGenerator = TrackingAudioGenerator(output: .failure(.AUDIO_GENERATION_FAILED))
         let orchestrator = CorePipelineOrchestrator(
-            imageProvider: ImageProviderModule(),
+            imageProvider: ImageProviderModule(mode: .demoCompatible),
             noteGenerator: noteGenerator,
             audioGenerator: audioGenerator,
             logHandler: { _ in }

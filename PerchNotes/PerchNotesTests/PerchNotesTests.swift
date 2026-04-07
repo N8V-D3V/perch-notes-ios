@@ -10,8 +10,8 @@ import Testing
 
 struct PerchNotesTests {
     @Test
-    func imageProviderReturnsDeterministicSourceImageForSelection() {
-        let module = ImageProviderModule()
+    func imageProviderDemoCompatibleModeReturnsDeterministicSourceImageForSelection() {
+        let module = ImageProviderModule(mode: .demoCompatible)
 
         let output = module.provideImage(
             image_acquisition_request: ImageAcquisitionRequest(acquisition_method: .SELECT_EXISTING_IMAGE),
@@ -27,7 +27,7 @@ struct PerchNotesTests {
 
     @Test
     func imageProviderFailsWhenCapturePermissionIsNotGranted() {
-        let module = ImageProviderModule()
+        let module = ImageProviderModule(mode: .demoCompatible)
 
         let output = module.provideImage(
             image_acquisition_request: ImageAcquisitionRequest(acquisition_method: .CAPTURE_NEW_IMAGE),
@@ -37,6 +37,101 @@ struct PerchNotesTests {
         #expect(output.source_image == nil)
         #expect(output.image_acquisition_result.status == .FAILED)
         #expect(output.image_acquisition_result.reason == .CAMERA_PERMISSION_REQUIRED)
+    }
+
+    @Test
+    func imageProviderResponseDrivenModeReturnsStableImageForReadableFile() throws {
+        let tempFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("perch-notes-image-provider-test-\(UUID().uuidString).img")
+        try Data("bird-on-wire".utf8).write(to: tempFile, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        let responder = FixedImageAcquisitionResponder(
+            response: ImageAcquisitionResponse(
+                status: .COMPLETED,
+                image_count: 1,
+                image_reference: tempFile.absoluteString
+            )
+        )
+        let module = ImageProviderModule(mode: .responseDriven(responder))
+
+        let firstOutput = module.provideImage(
+            image_acquisition_request: ImageAcquisitionRequest(acquisition_method: .SELECT_EXISTING_IMAGE),
+            camera_permission_state: CameraPermissionState(state: .UNKNOWN)
+        )
+        let secondOutput = module.provideImage(
+            image_acquisition_request: ImageAcquisitionRequest(acquisition_method: .SELECT_EXISTING_IMAGE),
+            camera_permission_state: CameraPermissionState(state: .UNKNOWN)
+        )
+
+        #expect(firstOutput.image_acquisition_result.status == .SUCCESS)
+        #expect(firstOutput.image_acquisition_result.reason == nil)
+        #expect(firstOutput.source_image?.origin_method == .SELECT_EXISTING_IMAGE)
+        #expect(firstOutput.source_image?.image_reference == tempFile.absoluteString)
+        #expect(firstOutput.source_image?.image_id == secondOutput.source_image?.image_id)
+    }
+
+    @Test
+    func imageProviderResponseDrivenModeFailsForCancelledAcquisition() {
+        let responder = FixedImageAcquisitionResponder(
+            response: ImageAcquisitionResponse(
+                status: .CANCELLED,
+                image_count: 0,
+                image_reference: nil
+            )
+        )
+        let module = ImageProviderModule(mode: .responseDriven(responder))
+
+        let output = module.provideImage(
+            image_acquisition_request: ImageAcquisitionRequest(acquisition_method: .SELECT_EXISTING_IMAGE),
+            camera_permission_state: CameraPermissionState(state: .UNKNOWN)
+        )
+
+        #expect(output.source_image == nil)
+        #expect(output.image_acquisition_result.status == .FAILED)
+        #expect(output.image_acquisition_result.reason == .IMAGE_ACQUISITION_CANCELLED)
+    }
+
+    @Test
+    func imageProviderResponseDrivenModeFailsForEmptyReference() {
+        let responder = FixedImageAcquisitionResponder(
+            response: ImageAcquisitionResponse(
+                status: .COMPLETED,
+                image_count: 1,
+                image_reference: "   "
+            )
+        )
+        let module = ImageProviderModule(mode: .responseDriven(responder))
+
+        let output = module.provideImage(
+            image_acquisition_request: ImageAcquisitionRequest(acquisition_method: .SELECT_EXISTING_IMAGE),
+            camera_permission_state: CameraPermissionState(state: .UNKNOWN)
+        )
+
+        #expect(output.source_image == nil)
+        #expect(output.image_acquisition_result.status == .FAILED)
+        #expect(output.image_acquisition_result.reason == .INVALID_SOURCE_IMAGE)
+    }
+
+    @Test
+    func imageProviderResponseDrivenModeFailsForMultipleImages() {
+        let responder = FixedImageAcquisitionResponder(
+            response: ImageAcquisitionResponse(
+                status: .COMPLETED,
+                image_count: 2,
+                image_reference: "ignored"
+            )
+        )
+        let module = ImageProviderModule(mode: .responseDriven(responder))
+
+        let output = module.provideImage(
+            image_acquisition_request: ImageAcquisitionRequest(acquisition_method: .SELECT_EXISTING_IMAGE),
+            camera_permission_state: CameraPermissionState(state: .UNKNOWN)
+        )
+
+        #expect(output.source_image == nil)
+        #expect(output.image_acquisition_result.status == .FAILED)
+        #expect(output.image_acquisition_result.reason == .MULTIPLE_IMAGES_NOT_SUPPORTED)
     }
 
     @Test
@@ -136,5 +231,17 @@ struct PerchNotesTests {
         #expect(output.generated_audio == nil)
         #expect(output.audio_generation_result.status == .FAILED)
         #expect(output.audio_generation_result.reason == .INVALID_NOTE_TIMING)
+    }
+}
+
+private final class FixedImageAcquisitionResponder: ImageAcquisitionResponding {
+    private let response: ImageAcquisitionResponse
+
+    init(response: ImageAcquisitionResponse) {
+        self.response = response
+    }
+
+    func acquireImageResponse(for acquisitionMethod: ImageAcquisitionMethod) -> ImageAcquisitionResponse {
+        response
     }
 }

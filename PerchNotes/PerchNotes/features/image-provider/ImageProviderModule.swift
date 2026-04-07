@@ -2,9 +2,10 @@
 //  ImageProviderModule.swift
 //  PerchNotes
 //
-//  Created by Codex on 4/6/26.
+//  Created by Codex on 4/7/26.
 //
 
+import CryptoKit
 import Foundation
 
 enum ImageAcquisitionMethod: String, Sendable {
@@ -32,12 +33,24 @@ enum ImageAcquisitionFailureReason: String, Sendable {
     case IMAGE_ACQUISITION_FAILED
 }
 
+enum ImageAcquisitionResponseStatus: String, Sendable {
+    case COMPLETED
+    case CANCELLED
+    case FAILED
+}
+
 struct ImageAcquisitionRequest: Sendable, Equatable {
     let acquisition_method: ImageAcquisitionMethod
 }
 
 struct CameraPermissionState: Sendable, Equatable {
     let state: CameraPermissionStateValue
+}
+
+struct ImageAcquisitionResponse: Sendable, Equatable {
+    let status: ImageAcquisitionResponseStatus
+    let image_count: Int
+    let image_reference: String?
 }
 
 struct SourceImage: Sendable, Equatable {
@@ -58,10 +71,24 @@ protocol ImageProvider {
     ) -> (source_image: SourceImage?, image_acquisition_result: ImageAcquisitionResult)
 }
 
+protocol ImageAcquisitionResponding {
+    func acquireImageResponse(for acquisitionMethod: ImageAcquisitionMethod) -> ImageAcquisitionResponse
+}
+
 struct ImageProviderModule: ImageProvider {
+    enum Mode {
+        case demoCompatible
+        case responseDriven(any ImageAcquisitionResponding)
+    }
+
+    private let mode: Mode
     private let logHandler: (String) -> Void
 
-    init(logHandler: @escaping (String) -> Void = { print($0) }) {
+    init(
+        mode: Mode = .demoCompatible,
+        logHandler: @escaping (String) -> Void = { print($0) }
+    ) {
+        self.mode = mode
         self.logHandler = logHandler
     }
 
@@ -69,7 +96,9 @@ struct ImageProviderModule: ImageProvider {
         image_acquisition_request: ImageAcquisitionRequest,
         camera_permission_state: CameraPermissionState
     ) -> (source_image: SourceImage?, image_acquisition_result: ImageAcquisitionResult) {
-        log("input received: acquisition_method=\(image_acquisition_request.acquisition_method.rawValue), camera_permission_state=\(camera_permission_state.state.rawValue)")
+        log(
+            "input received: acquisition_method=\(image_acquisition_request.acquisition_method.rawValue), camera_permission_state=\(camera_permission_state.state.rawValue), mode=\(describeMode())"
+        )
 
         if image_acquisition_request.acquisition_method == .CAPTURE_NEW_IMAGE,
            camera_permission_state.state != .GRANTED {
@@ -79,35 +108,141 @@ struct ImageProviderModule: ImageProvider {
             return (nil, failure)
         }
 
-        log("intended behavior: acquire exactly one source image using the requested method without performing real camera or photo-library work")
-
-        let source_image = SourceImage(
-            image_id: deterministicImageID(for: image_acquisition_request.acquisition_method),
-            origin_method: image_acquisition_request.acquisition_method,
-            image_reference: deterministicImageReference(for: image_acquisition_request.acquisition_method)
+        log("intended behavior: acquire exactly one image response for the requested method, validate it, and convert it into one SourceImage")
+        let acquisitionResponse = acquisitionResponder().acquireImageResponse(
+            for: image_acquisition_request.acquisition_method
         )
-        let success = ImageAcquisitionResult(status: .SUCCESS, reason: nil)
+        log("acquisition response received: \(describe(acquisitionResponse))")
 
-        log("decision path: stub acquisition succeeded with one simulated image artifact")
-        log("output produced: source_image=\(describe(source_image)), image_acquisition_result=\(describe(success))")
-        return (source_image, success)
-    }
+        switch acquisitionResponse.status {
+        case .CANCELLED:
+            log("decision path: acquisition was cancelled by the user")
+            let failure = ImageAcquisitionResult(status: .FAILED, reason: .IMAGE_ACQUISITION_CANCELLED)
+            log("output produced: source_image=nil, image_acquisition_result=\(describe(failure))")
+            return (nil, failure)
 
-    private func deterministicImageID(for acquisitionMethod: ImageAcquisitionMethod) -> String {
-        switch acquisitionMethod {
-        case .CAPTURE_NEW_IMAGE:
-            return "stub-image-capture-new-image"
-        case .SELECT_EXISTING_IMAGE:
-            return "stub-image-select-existing-image"
+        case .FAILED:
+            log("decision path: acquisition adapter reported failure before a valid image was returned")
+            let failure = ImageAcquisitionResult(status: .FAILED, reason: .IMAGE_ACQUISITION_FAILED)
+            log("output produced: source_image=nil, image_acquisition_result=\(describe(failure))")
+            return (nil, failure)
+
+        case .COMPLETED:
+            if acquisitionResponse.image_count == 0 {
+                log("decision path: acquisition completed with zero images, returning NO_IMAGE_ACQUIRED")
+                let failure = ImageAcquisitionResult(status: .FAILED, reason: .NO_IMAGE_ACQUIRED)
+                log("output produced: source_image=nil, image_acquisition_result=\(describe(failure))")
+                return (nil, failure)
+            }
+
+            if acquisitionResponse.image_count > 1 {
+                log("decision path: acquisition completed with more than one image, returning MULTIPLE_IMAGES_NOT_SUPPORTED")
+                let failure = ImageAcquisitionResult(status: .FAILED, reason: .MULTIPLE_IMAGES_NOT_SUPPORTED)
+                log("output produced: source_image=nil, image_acquisition_result=\(describe(failure))")
+                return (nil, failure)
+            }
+
+            guard let validatedReference = validatedImageReference(from: acquisitionResponse.image_reference) else {
+                log("decision path: acquisition completed without a valid image reference, returning INVALID_SOURCE_IMAGE")
+                let failure = ImageAcquisitionResult(status: .FAILED, reason: .INVALID_SOURCE_IMAGE)
+                log("output produced: source_image=nil, image_acquisition_result=\(describe(failure))")
+                return (nil, failure)
+            }
+
+            guard let stableImageID = makeStableImageID(from: validatedReference) else {
+                log("decision path: image reference could not be converted into a stable identifier, returning INVALID_SOURCE_IMAGE")
+                let failure = ImageAcquisitionResult(status: .FAILED, reason: .INVALID_SOURCE_IMAGE)
+                log("output produced: source_image=nil, image_acquisition_result=\(describe(failure))")
+                return (nil, failure)
+            }
+
+            let sourceImage = SourceImage(
+                image_id: stableImageID,
+                origin_method: image_acquisition_request.acquisition_method,
+                image_reference: validatedReference
+            )
+            let success = ImageAcquisitionResult(status: .SUCCESS, reason: nil)
+
+            log("decision path: acquisition response converted into one valid source image")
+            log("output produced: source_image=\(describe(sourceImage)), image_acquisition_result=\(describe(success))")
+            return (sourceImage, success)
         }
     }
 
-    private func deterministicImageReference(for acquisitionMethod: ImageAcquisitionMethod) -> String {
-        switch acquisitionMethod {
-        case .CAPTURE_NEW_IMAGE:
-            return "stub://image/capture-new-image"
-        case .SELECT_EXISTING_IMAGE:
-            return "stub://image/select-existing-image"
+    private func acquisitionResponder() -> any ImageAcquisitionResponding {
+        switch mode {
+        case .demoCompatible:
+            return DemoCompatibleImageAcquisitionResponder()
+        case .responseDriven(let responder):
+            return responder
+        }
+    }
+
+    private func validatedImageReference(from imageReference: String?) -> String? {
+        guard let imageReference else {
+            return nil
+        }
+
+        let trimmedReference = imageReference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedReference.isEmpty == false else {
+            return nil
+        }
+
+        if demoCompatibleImageID(for: trimmedReference) != nil {
+            return trimmedReference
+        }
+
+        if let url = URL(string: trimmedReference), url.isFileURL {
+            return FileManager.default.fileExists(atPath: url.path) ? trimmedReference : nil
+        }
+
+        let fileURL = URL(fileURLWithPath: trimmedReference)
+        return FileManager.default.fileExists(atPath: fileURL.path) ? trimmedReference : nil
+    }
+
+    private func makeStableImageID(from imageReference: String) -> String? {
+        if let demoImageID = demoCompatibleImageID(for: imageReference) {
+            return demoImageID
+        }
+
+        guard let imageData = loadImageData(from: imageReference) else {
+            return nil
+        }
+
+        let digest = SHA256.hash(data: imageData)
+        return "image-\(digest.map { String(format: "%02x", $0) }.joined())"
+    }
+
+    private func loadImageData(from imageReference: String) -> Data? {
+        if let url = URL(string: imageReference), url.isFileURL {
+            return try? Data(contentsOf: url)
+        }
+
+        let fileURL = URL(fileURLWithPath: imageReference)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+
+        return try? Data(contentsOf: fileURL)
+    }
+
+    private func demoCompatibleImageID(for imageReference: String) -> String? {
+        switch imageReference {
+        case "stub://image/capture-new-image":
+            return "stub-image-capture-new-image"
+        case "stub://image/select-existing-image":
+            return "stub-image-select-existing-image"
+        default:
+            return nil
+        }
+    }
+
+    private func describeMode() -> String {
+        switch mode {
+        case .demoCompatible:
+            return "demoCompatible"
+        case .responseDriven:
+            return "responseDriven"
         }
     }
 
@@ -119,7 +254,31 @@ struct ImageProviderModule: ImageProvider {
         "ImageAcquisitionResult(status: \(result.status.rawValue), reason: \(result.reason?.rawValue ?? "nil"))"
     }
 
+    private func describe(_ response: ImageAcquisitionResponse) -> String {
+        "ImageAcquisitionResponse(status: \(response.status.rawValue), image_count: \(response.image_count), image_reference: \(response.image_reference ?? "nil"))"
+    }
+
     private func log(_ message: String) {
         logHandler("[ImageProviderModule] \(message)")
+    }
+}
+
+private struct DemoCompatibleImageAcquisitionResponder: ImageAcquisitionResponding {
+    func acquireImageResponse(for acquisitionMethod: ImageAcquisitionMethod) -> ImageAcquisitionResponse {
+        switch acquisitionMethod {
+        case .CAPTURE_NEW_IMAGE:
+            return ImageAcquisitionResponse(
+                status: .COMPLETED,
+                image_count: 1,
+                image_reference: "stub://image/capture-new-image"
+            )
+
+        case .SELECT_EXISTING_IMAGE:
+            return ImageAcquisitionResponse(
+                status: .COMPLETED,
+                image_count: 1,
+                image_reference: "stub://image/select-existing-image"
+            )
+        }
     }
 }
