@@ -205,6 +205,52 @@ struct PerchNotesTests {
     }
 
     @Test
+    func noteGeneratorAnalysisDrivenModeSelectsBestLineFromMultiplePlausibleSyntheticWires() throws {
+        let sourceImage = try makeSyntheticSourceImage(
+            fileName: "note-generator-multi-wire-success",
+            draw: { context, width, _ in
+                context.setFillColor(gray: 0.0, alpha: 1.0)
+
+                context.setLineWidth(2)
+                context.move(to: CGPoint(x: 8, y: 18))
+                context.addLine(to: CGPoint(x: width - 8, y: 30))
+                context.strokePath()
+
+                context.move(to: CGPoint(x: 12, y: 48))
+                context.addLine(to: CGPoint(x: width - 12, y: 60))
+                context.strokePath()
+
+                context.fillEllipse(in: CGRect(x: 18, y: 11, width: 8, height: 8))
+                context.fillEllipse(in: CGRect(x: 48, y: 13, width: 8, height: 8))
+                context.fillEllipse(in: CGRect(x: 78, y: 17, width: 8, height: 8))
+                context.fillEllipse(in: CGRect(x: 100, y: 19, width: 8, height: 8))
+
+                context.fillEllipse(in: CGRect(x: 22, y: 44, width: 8, height: 8))
+                context.fillEllipse(in: CGRect(x: 52, y: 47, width: 8, height: 8))
+            }
+        )
+
+        let module = NoteGeneratorModule(mode: .analysisDriven(LocalImageNoteAnalyzer()))
+
+        let firstOutput = module.generateNotes(
+            source_image: sourceImage,
+            note_generation_request: NoteGenerationRequest(request_id: "multi-wire-1")
+        )
+        let secondOutput = module.generateNotes(
+            source_image: sourceImage,
+            note_generation_request: NoteGenerationRequest(request_id: "multi-wire-2")
+        )
+
+        #expect(firstOutput.note_generation_result.status == .SUCCESS)
+        #expect(firstOutput.note_generation_result.reason == nil)
+        #expect(firstOutput.note_sequence == secondOutput.note_sequence)
+        #expect(firstOutput.note_sequence?.note_count == 2)
+        #expect(firstOutput.note_sequence?.events.map(\.order_index) == [0, 1])
+        #expect(firstOutput.note_sequence?.events.map(\.start_offset_units) == [0, 1])
+        #expect(firstOutput.note_sequence?.events.map(\.duration_units) == [1, 1])
+    }
+
+    @Test
     func noteGeneratorAnalysisDrivenModeFailsWhenNoValidPowerlineExists() throws {
         let sourceImage = try makeSyntheticSourceImage(
             fileName: "note-generator-no-powerline",
@@ -244,7 +290,7 @@ struct PerchNotesTests {
     }
 
     @Test
-    func noteGeneratorAnalysisDrivenModeFailsForAmbiguousPowerlineSelection() {
+    func noteGeneratorAnalysisDrivenModeSelectsBestPowerlineWhenMultipleCandidatesExist() {
         let module = NoteGeneratorModule(
             mode: .analysisDriven(
                 FixedNoteImageAnalyzer(
@@ -252,12 +298,26 @@ struct PerchNotesTests {
                         DetectedPowerline(
                             centerY: 20,
                             prominenceScore: 10_000,
-                            birds: [DetectedBird(centerX: 10, centerY: 10, darknessScore: 100)]
+                            birds: [DetectedBird(centerX: 10, centerY: 10, darknessScore: 100)],
+                            slope: 0.05,
+                            spanWidth: 80,
+                            supportCount: 42,
+                            averageBirdDistance: 3,
+                            centralityScore: 0.70
                         ),
                         DetectedPowerline(
                             centerY: 40,
                             prominenceScore: 10_000,
-                            birds: [DetectedBird(centerX: 30, centerY: 20, darknessScore: 100)]
+                            birds: [
+                                DetectedBird(centerX: 30, centerY: 20, darknessScore: 100),
+                                DetectedBird(centerX: 55, centerY: 18, darknessScore: 110),
+                                DetectedBird(centerX: 78, centerY: 16, darknessScore: 120),
+                            ],
+                            slope: 0.02,
+                            spanWidth: 110,
+                            supportCount: 58,
+                            averageBirdDistance: 1,
+                            centralityScore: 0.92
                         ),
                     ])
                 )
@@ -274,9 +334,10 @@ struct PerchNotesTests {
             note_generation_request: NoteGenerationRequest(request_id: "ambiguous-powerline")
         )
 
-        #expect(output.note_sequence == nil)
-        #expect(output.note_generation_result.status == .FAILED)
-        #expect(output.note_generation_result.reason == .AMBIGUOUS_POWERLINE_SELECTION)
+        #expect(output.note_generation_result.status == .SUCCESS)
+        #expect(output.note_generation_result.reason == nil)
+        #expect(output.note_sequence?.note_count == 3)
+        #expect(output.note_sequence?.events.map(\.order_index) == [0, 1, 2])
     }
 
     @Test

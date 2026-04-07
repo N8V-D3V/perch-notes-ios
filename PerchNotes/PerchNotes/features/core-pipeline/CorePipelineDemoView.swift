@@ -26,7 +26,9 @@ struct CorePipelineDemoView: View {
                     headerSection
                     failureBannerSection
                     controlsSection
-                    summarySection
+                    if shouldShowSummarySection {
+                        summarySection
+                    }
                 }
                 .padding(20)
             }
@@ -202,6 +204,14 @@ struct CorePipelineDemoView: View {
 
     private var isBusy: Bool {
         activeAcquisitionMethod != nil || isRequestingCameraPermission
+    }
+
+    private var shouldShowSummarySection: Bool {
+        guard let latestRun else {
+            return true
+        }
+
+        return latestRun.result.final_pipeline_status == .SUCCESS
     }
 
     private func startSelectionPipeline() {

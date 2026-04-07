@@ -62,6 +62,31 @@ struct DetectedPowerline {
     let centerY: Double
     let prominenceScore: Double
     let birds: [DetectedBird]
+    let slope: Double
+    let spanWidth: Double
+    let supportCount: Int
+    let averageBirdDistance: Double
+    let centralityScore: Double
+
+    init(
+        centerY: Double,
+        prominenceScore: Double,
+        birds: [DetectedBird],
+        slope: Double = 0,
+        spanWidth: Double = 0,
+        supportCount: Int = 0,
+        averageBirdDistance: Double = 0,
+        centralityScore: Double = 0
+    ) {
+        self.centerY = centerY
+        self.prominenceScore = prominenceScore
+        self.birds = birds
+        self.slope = slope
+        self.spanWidth = spanWidth
+        self.supportCount = supportCount
+        self.averageBirdDistance = averageBirdDistance
+        self.centralityScore = centralityScore
+    }
 }
 
 struct DetectedBird {
@@ -109,15 +134,18 @@ struct NoteGeneratorModule: NoteGenerator {
                 return (nil, failure)
 
             case .success(let detectedPowerlines):
+                log("line selection behavior: candidate_count=\(detectedPowerlines.count)")
+                logCandidateRankings(detectedPowerlines)
+
                 guard let selectedPowerline = selectSingleMostProminentPowerline(from: detectedPowerlines) else {
                     let failure = NoteGenerationResult(status: .FAILED, reason: .AMBIGUOUS_POWERLINE_SELECTION)
-                    log("decision path: multiple valid powerlines could not be resolved to one unambiguous selection")
+                    log("decision path: multiple valid powerlines remained indistinguishable after deterministic ranking, returning AMBIGUOUS_POWERLINE_SELECTION")
                     log("output produced: note_sequence=nil, note_generation_result=\(describe(failure))")
                     return (nil, failure)
                 }
 
                 log(
-                    "selected powerline: center_y=\(format(selectedPowerline.centerY)), prominence_score=\(format(selectedPowerline.prominenceScore)), bird_count=\(selectedPowerline.birds.count)"
+                    "selected powerline: center_y=\(format(selectedPowerline.centerY)), slope=\(format(selectedPowerline.slope)), prominence_score=\(format(selectedPowerline.prominenceScore)), bird_count=\(selectedPowerline.birds.count), span_width=\(format(selectedPowerline.spanWidth)), support_count=\(selectedPowerline.supportCount), average_bird_distance=\(format(selectedPowerline.averageBirdDistance)), centrality_score=\(format(selectedPowerline.centralityScore))"
                 )
 
                 guard selectedPowerline.birds.isEmpty == false else {
@@ -189,25 +217,68 @@ struct NoteGeneratorModule: NoteGenerator {
     private func selectSingleMostProminentPowerline(
         from detectedPowerlines: [DetectedPowerline]
     ) -> DetectedPowerline? {
-        let sortedPowerlines = detectedPowerlines.sorted { lhs, rhs in
-            if lhs.prominenceScore == rhs.prominenceScore {
-                return lhs.centerY < rhs.centerY
-            }
-            return lhs.prominenceScore > rhs.prominenceScore
+        let rankedPowerlines = detectedPowerlines.sorted { lhs, rhs in
+            compareSelectionPriority(lhs, rhs)
         }
 
-        guard let top = sortedPowerlines.first else {
+        guard let top = rankedPowerlines.first else {
             return nil
         }
 
-        if sortedPowerlines.count > 1 {
-            let second = sortedPowerlines[1]
-            if abs(top.prominenceScore - second.prominenceScore) < 0.0001 {
+        if rankedPowerlines.count > 1 {
+            let second = rankedPowerlines[1]
+            if hasEquivalentSelectionPriority(top, second) {
+                log(
+                    "selection ambiguity: top candidates remained tied after ranking. top=\(describeSelection(top)); second=\(describeSelection(second))"
+                )
                 return nil
             }
         }
 
         return top
+    }
+
+    private func compareSelectionPriority(_ lhs: DetectedPowerline, _ rhs: DetectedPowerline) -> Bool {
+        if abs(lhs.prominenceScore - rhs.prominenceScore) >= 0.0001 {
+            return lhs.prominenceScore > rhs.prominenceScore
+        }
+
+        if lhs.birds.count != rhs.birds.count {
+            return lhs.birds.count > rhs.birds.count
+        }
+
+        if abs(lhs.spanWidth - rhs.spanWidth) >= 0.0001 {
+            return lhs.spanWidth > rhs.spanWidth
+        }
+
+        if lhs.supportCount != rhs.supportCount {
+            return lhs.supportCount > rhs.supportCount
+        }
+
+        if abs(lhs.averageBirdDistance - rhs.averageBirdDistance) >= 0.0001 {
+            return lhs.averageBirdDistance < rhs.averageBirdDistance
+        }
+
+        if abs(lhs.centralityScore - rhs.centralityScore) >= 0.0001 {
+            return lhs.centralityScore > rhs.centralityScore
+        }
+
+        if abs(abs(lhs.slope) - abs(rhs.slope)) >= 0.0001 {
+            return abs(lhs.slope) < abs(rhs.slope)
+        }
+
+        return lhs.centerY < rhs.centerY
+    }
+
+    private func hasEquivalentSelectionPriority(_ lhs: DetectedPowerline, _ rhs: DetectedPowerline) -> Bool {
+        abs(lhs.prominenceScore - rhs.prominenceScore) < 0.0001
+            && lhs.birds.count == rhs.birds.count
+            && abs(lhs.spanWidth - rhs.spanWidth) < 0.0001
+            && lhs.supportCount == rhs.supportCount
+            && abs(lhs.averageBirdDistance - rhs.averageBirdDistance) < 0.0001
+            && abs(lhs.centralityScore - rhs.centralityScore) < 0.0001
+            && abs(lhs.slope - rhs.slope) < 0.0001
+            && abs(lhs.centerY - rhs.centerY) < 0.0001
     }
 
     private func orderedBirds(from birds: [DetectedBird]) -> [DetectedBird]? {
@@ -288,11 +359,25 @@ struct NoteGeneratorModule: NoteGenerator {
         case .failure(let reason):
             return "failure(reason: \(reason.rawValue))"
         case .success(let powerlines):
-            let summary = powerlines
-                .map { "center_y=\(format($0.centerY)), prominence=\(format($0.prominenceScore)), birds=\($0.birds.count)" }
-                .joined(separator: "; ")
+            let summary = powerlines.map(describeSelection).joined(separator: "; ")
             return "success(powerlines: [\(summary)])"
         }
+    }
+
+    private func logCandidateRankings(_ powerlines: [DetectedPowerline]) {
+        let rankedSummaries = powerlines
+            .sorted(by: compareSelectionPriority)
+            .enumerated()
+            .map { index, powerline in
+                "#\(index + 1) \(describeSelection(powerline))"
+            }
+            .joined(separator: " | ")
+
+        log("line candidate rankings: \(rankedSummaries)")
+    }
+
+    private func describeSelection(_ powerline: DetectedPowerline) -> String {
+        "center_y=\(format(powerline.centerY)), slope=\(format(powerline.slope)), prominence=\(format(powerline.prominenceScore)), birds=\(powerline.birds.count), span_width=\(format(powerline.spanWidth)), support_count=\(powerline.supportCount), avg_bird_distance=\(format(powerline.averageBirdDistance)), centrality=\(format(powerline.centralityScore))"
     }
 
     private func format(_ value: Double) -> String {
