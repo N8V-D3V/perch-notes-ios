@@ -1,6 +1,6 @@
 # Contract-Oriented Programming (COP) — Human Manifesto
 
-Version: 0.1.0
+Version: 0.3.0
 
 ---
 
@@ -94,6 +94,86 @@ It enables:
 - reduced ambiguity
 - repeatable system design
 - structured collaboration between humans and AI
+
+---
+
+## The COP Development Cycle
+
+COP systems are built through a repeatable cycle of validation and iteration.
+
+Each stage must be completed and verified before moving forward.
+
+---
+
+### 1. Contract Alignment ✅
+
+Before any implementation begins:
+
+- Contracts must be complete, consistent, and unambiguous
+- Inputs, outputs, success, and failure must be clearly defined
+- All major system behavior must be captured
+
+**Green Flag:**
+> The system behavior is clearly understood and agreed upon
+
+**Celebrate:**  
+You now understand what you are building.
+
+---
+
+### 2. Stubbed System Demo 🔧
+
+Before real implementation:
+
+- All modules must be implemented as stubs
+- Stubs must simulate contract-defined behavior
+- Stubs must log inputs, outputs, and decisions
+- No real processing or external integration should occur
+
+**Green Flag:**
+> The full system works end-to-end using only stubbed modules
+
+**Celebrate:**  
+You have a working system — before writing real logic.
+
+---
+
+### 3. Implementation Demo 🚀
+
+After stub validation:
+
+- Real implementations replace stubs
+- Behavior must remain identical to the stubbed system
+- Contracts and protocols must still be strictly followed
+
+**Green Flag:**
+> The real system produces correct outputs under real conditions
+
+**Celebrate:**  
+You now have a working, real system.
+
+---
+
+### 4. Iterate 🔁
+
+Systems evolve through iteration:
+
+- Contracts may be refined
+- Protocols may be updated
+- Modules may be improved
+
+Each iteration repeats the cycle:
+
+> Contract Alignment → Stub Demo → Implementation → Validation
+
+---
+
+## Philosophy
+
+> Prove it works.  
+> Show it works.  
+> Then make it real.  
+> Then make it better.
 
 ---
 
