@@ -432,6 +432,45 @@ struct PerchNotesTests {
         #expect(output.audio_generation_result.status == .FAILED)
         #expect(output.audio_generation_result.reason == .INVALID_NOTE_TIMING)
     }
+
+    @Test
+    func corePipelineDemoRunnerRunsRealPipelineForSelectedImage() throws {
+        let sourceImage = try makeSyntheticSourceImage(
+            fileName: "core-pipeline-real-demo-success",
+            draw: { context, width, _ in
+                context.setFillColor(gray: 0.0, alpha: 1.0)
+                context.fill(CGRect(x: 10, y: 50, width: width - 20, height: 2))
+                context.fillEllipse(in: CGRect(x: 16, y: 39, width: 8, height: 8))
+                context.fillEllipse(in: CGRect(x: 56, y: 27, width: 8, height: 8))
+                context.fillEllipse(in: CGRect(x: 92, y: 35, width: 8, height: 8))
+            }
+        )
+        let responder = FixedImageAcquisitionResponder(
+            response: ImageAcquisitionResponse(
+                status: .COMPLETED,
+                image_count: 1,
+                image_reference: sourceImage.image_reference
+            )
+        )
+        let runner = CorePipelineDemoRunner()
+
+        let run = runner.runRealPipeline(
+            imageAcquisitionRequest: ImageAcquisitionRequest(acquisition_method: .SELECT_EXISTING_IMAGE),
+            cameraPermissionState: CameraPermissionState(state: .UNKNOWN),
+            acquisitionResponder: responder
+        )
+
+        #expect(run.request.image_acquisition_request.acquisition_method == .SELECT_EXISTING_IMAGE)
+        #expect(run.result.final_pipeline_status == .SUCCESS)
+        #expect(run.result.image_acquisition_outcome.image_acquisition_result.status == .SUCCESS)
+        #expect(run.result.note_generation_outcome?.note_generation_result.status == .SUCCESS)
+        #expect(run.result.audio_generation_outcome?.audio_generation_result.status == .SUCCESS)
+        #expect(run.result.audio_generation_outcome?.generated_audio?.audio_reference.hasSuffix(".wav") == true)
+        #expect(run.logLines.contains(where: { $0.contains("pipeline started") }))
+        #expect(run.logLines.contains(where: { $0.contains("image acquisition result") }))
+        #expect(run.logLines.contains(where: { $0.contains("note generation result") }))
+        #expect(run.logLines.contains(where: { $0.contains("audio generation result") }))
+    }
 }
 
 private final class FixedImageAcquisitionResponder: ImageAcquisitionResponding {
