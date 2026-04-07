@@ -2,7 +2,7 @@
 //  AudioGeneratorModule.swift
 //  PerchNotes
 //
-//  Created by Codex on 4/6/26.
+//  Created by Codex on 4/7/26.
 //
 
 import Foundation
@@ -45,9 +45,14 @@ protocol AudioGenerator {
 }
 
 struct AudioGeneratorModule: AudioGenerator {
+    private let renderer: DeterministicWaveAudioRenderer
     private let logHandler: (String) -> Void
 
-    init(logHandler: @escaping (String) -> Void = { print($0) }) {
+    init(
+        renderer: DeterministicWaveAudioRenderer = DeterministicWaveAudioRenderer(),
+        logHandler: @escaping (String) -> Void = { print($0) }
+    ) {
+        self.renderer = renderer
         self.logHandler = logHandler
     }
 
@@ -56,53 +61,64 @@ struct AudioGeneratorModule: AudioGenerator {
         audio_generation_request: AudioGenerationRequest
     ) -> (generated_audio: GeneratedAudio?, audio_generation_result: AudioGenerationResult) {
         log("input received: note_sequence=\(describe(note_sequence)), audio_generation_request=\(describe(audio_generation_request))")
+        log("validation path: checking note sequence presence, count, order, timing, and pitch values before rendering")
 
-        if note_sequence.events.isEmpty || note_sequence.note_count == 0 {
+        guard note_sequence.events.isEmpty == false, note_sequence.note_count > 0 else {
             log("decision path: note sequence is empty, returning EMPTY_NOTE_SEQUENCE")
-            let failure = AudioGenerationResult(status: .FAILED, reason: .EMPTY_NOTE_SEQUENCE)
-            log("output produced: generated_audio=nil, audio_generation_result=\(describe(failure))")
-            return (nil, failure)
+            return failure(.EMPTY_NOTE_SEQUENCE)
         }
 
-        if note_sequence.note_count != note_sequence.events.count {
+        guard note_sequence.note_count == note_sequence.events.count else {
             log("decision path: note_count does not match events.count, returning INVALID_NOTE_SEQUENCE")
-            let failure = AudioGenerationResult(status: .FAILED, reason: .INVALID_NOTE_SEQUENCE)
-            log("output produced: generated_audio=nil, audio_generation_result=\(describe(failure))")
-            return (nil, failure)
+            return failure(.INVALID_NOTE_SEQUENCE)
         }
 
-        let hasInvalidTiming = note_sequence.events.enumerated().contains { index, event in
-            event.start_offset_units != event.order_index || event.duration_units != 1 || event.order_index != index
+        let hasInvalidOrder = note_sequence.events.enumerated().contains { index, event in
+            event.order_index != index
         }
-        if hasInvalidTiming {
-            log("decision path: sequential timing validation failed, returning INVALID_NOTE_TIMING")
-            let failure = AudioGenerationResult(status: .FAILED, reason: .INVALID_NOTE_TIMING)
-            log("output produced: generated_audio=nil, audio_generation_result=\(describe(failure))")
-            return (nil, failure)
+        guard hasInvalidOrder == false else {
+            log("decision path: order_index values are not sequential within the returned event order, returning INVALID_NOTE_SEQUENCE")
+            return failure(.INVALID_NOTE_SEQUENCE)
         }
 
-        log("intended behavior: validate one deterministic note sequence and render one playable loopable audio artifact without real synthesis")
+        let hasInvalidTiming = note_sequence.events.contains { event in
+            event.start_offset_units != event.order_index || event.duration_units != 1
+        }
+        guard hasInvalidTiming == false else {
+            log("decision path: timing validation failed because start_offset_units or duration_units violated the v0.1 timing contract, returning INVALID_NOTE_TIMING")
+            return failure(.INVALID_NOTE_TIMING)
+        }
 
-        let generatedAudio = GeneratedAudio(
-            audio_id: deterministicAudioID(for: note_sequence),
-            source_image_id: note_sequence.source_image_id,
-            note_count: note_sequence.note_count,
-            loopable: true,
-            audio_reference: deterministicAudioReference(for: note_sequence)
-        )
-        let success = AudioGenerationResult(status: .SUCCESS, reason: nil)
+        let hasInvalidPitch = note_sequence.events.contains { event in
+            event.pitch_rank <= 0
+        }
+        guard hasInvalidPitch == false else {
+            log("decision path: at least one note event has a non-positive pitch_rank, returning INVALID_NOTE_SEQUENCE")
+            return failure(.INVALID_NOTE_SEQUENCE)
+        }
 
-        log("decision path: stub audio generation succeeded after sequence validation")
-        log("output produced: generated_audio=\(describe(generatedAudio)), audio_generation_result=\(describe(success))")
-        return (generatedAudio, success)
-    }
+        log("intended behavior: map each pitch_rank into a deterministic tone, render one PCM wave file, and return one playable loopable audio artifact")
 
-    private func deterministicAudioID(for noteSequence: NoteSequence) -> String {
-        "stub-audio-\(noteSequence.source_image_id)-\(noteSequence.note_count)"
-    }
+        do {
+            let renderedArtifact = try renderer.render(noteSequence: note_sequence)
+            log("note-to-audio mapping behavior: \(renderedArtifact.mappingDescription)")
 
-    private func deterministicAudioReference(for noteSequence: NoteSequence) -> String {
-        "stub://audio/\(noteSequence.source_image_id)/\(noteSequence.note_count)"
+            let generatedAudio = GeneratedAudio(
+                audio_id: renderedArtifact.audioID,
+                source_image_id: note_sequence.source_image_id,
+                note_count: note_sequence.note_count,
+                loopable: true,
+                audio_reference: renderedArtifact.audioReference
+            )
+            let success = AudioGenerationResult(status: .SUCCESS, reason: nil)
+
+            log("decision path: real audio generation succeeded after validation and deterministic rendering")
+            log("output produced: generated_audio=\(describe(generatedAudio)), audio_generation_result=\(describe(success))")
+            return (generatedAudio, success)
+        } catch {
+            log("decision path: renderer failed to produce a playable artifact, returning AUDIO_GENERATION_FAILED, error=\(error)")
+            return failure(.AUDIO_GENERATION_FAILED)
+        }
     }
 
     private func describe(_ request: AudioGenerationRequest) -> String {
@@ -124,6 +140,14 @@ struct AudioGeneratorModule: AudioGenerator {
 
     private func describe(_ result: AudioGenerationResult) -> String {
         "AudioGenerationResult(status: \(result.status.rawValue), reason: \(result.reason?.rawValue ?? "nil"))"
+    }
+
+    private func failure(
+        _ reason: AudioGenerationFailureReason
+    ) -> (generated_audio: GeneratedAudio?, audio_generation_result: AudioGenerationResult) {
+        let result = AudioGenerationResult(status: .FAILED, reason: reason)
+        log("output produced: generated_audio=nil, audio_generation_result=\(describe(result))")
+        return (nil, result)
     }
 
     private func log(_ message: String) {

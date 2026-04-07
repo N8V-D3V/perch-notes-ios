@@ -14,7 +14,7 @@ struct CorePipelineOrchestratorTests {
         let logger = LogCollector()
         let orchestrator = CorePipelineOrchestrator(
             imageProvider: ImageProviderModule(mode: .demoCompatible),
-            noteGenerator: NoteGeneratorModule(),
+            noteGenerator: NoteGeneratorModule(mode: .demoCompatible),
             audioGenerator: AudioGeneratorModule(),
             logHandler: logger.record
         )
@@ -123,6 +123,45 @@ struct CorePipelineOrchestratorTests {
         #expect(noteGenerator.callCount == 1)
         #expect(audioGenerator.callCount == 1)
     }
+
+    @Test
+    func pipelineSupportsAnalysisDrivenNoteGeneratorWithoutOrchestratorChanges() {
+        let noteGenerator = NoteGeneratorModule(
+            mode: .analysisDriven(
+                FixedNoteImageAnalyzer(
+                    result: .success([
+                        DetectedPowerline(
+                            centerY: 42,
+                            prominenceScore: 20_100,
+                            birds: [
+                                DetectedBird(centerX: 12, centerY: 30, darknessScore: 120),
+                                DetectedBird(centerX: 40, centerY: 20, darknessScore: 140),
+                            ]
+                        )
+                    ])
+                )
+            )
+        )
+        let audioGenerator = TrackingAudioGenerator(output: .success)
+        let orchestrator = CorePipelineOrchestrator(
+            imageProvider: ImageProviderModule(mode: .demoCompatible),
+            noteGenerator: noteGenerator,
+            audioGenerator: audioGenerator,
+            logHandler: { _ in }
+        )
+
+        let result = orchestrator.runPipeline(
+            request: CorePipelineRequest(
+                image_acquisition_request: ImageAcquisitionRequest(acquisition_method: .SELECT_EXISTING_IMAGE),
+                camera_permission_state: CameraPermissionState(state: .UNKNOWN)
+            )
+        )
+
+        #expect(result.final_pipeline_status == .SUCCESS)
+        #expect(result.note_generation_outcome?.note_sequence?.note_count == 2)
+        #expect(result.note_generation_outcome?.note_sequence?.events.map(\.order_index) == [0, 1])
+        #expect(audioGenerator.callCount == 1)
+    }
 }
 
 private final class LogCollector {
@@ -215,5 +254,17 @@ private final class TrackingAudioGenerator: AudioGenerator {
                 AudioGenerationResult(status: .FAILED, reason: reason)
             )
         }
+    }
+}
+
+private final class FixedNoteImageAnalyzer: NoteImageAnalyzing {
+    private let result: NoteImageAnalysisResult
+
+    init(result: NoteImageAnalysisResult) {
+        self.result = result
+    }
+
+    func analyze(source_image: SourceImage) -> NoteImageAnalysisResult {
+        result
     }
 }

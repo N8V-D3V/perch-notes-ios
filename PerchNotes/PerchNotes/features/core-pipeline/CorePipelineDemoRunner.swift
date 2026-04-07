@@ -27,7 +27,7 @@ struct CorePipelineDemoRunner {
 
         let orchestrator = CorePipelineOrchestrator(
             imageProvider: ImageProviderModule(mode: .demoCompatible, logHandler: logHandler),
-            noteGenerator: NoteGeneratorModule(logHandler: logHandler),
+            noteGenerator: NoteGeneratorModule(mode: .demoCompatible, logHandler: logHandler),
             audioGenerator: AudioGeneratorModule(logHandler: logHandler),
             logHandler: logHandler
         )

@@ -5,7 +5,11 @@
 //  Created by TJ and Brianna Olsen on 4/5/26.
 //
 
+import CoreGraphics
+import Foundation
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 @testable import PerchNotes
 
 struct PerchNotesTests {
@@ -135,8 +139,8 @@ struct PerchNotesTests {
     }
 
     @Test
-    func noteGeneratorReturnsDeterministicSequenceForSameSourceImage() {
-        let module = NoteGeneratorModule()
+    func noteGeneratorDemoCompatibleModeReturnsDeterministicSequenceForSameSourceImage() {
+        let module = NoteGeneratorModule(mode: .demoCompatible)
         let sourceImage = SourceImage(
             image_id: "stub-image-select-existing-image",
             origin_method: .SELECT_EXISTING_IMAGE,
@@ -167,12 +171,155 @@ struct PerchNotesTests {
     }
 
     @Test
-    func noteGeneratorFailsWhenImageReferenceIsEmpty() {
-        let module = NoteGeneratorModule()
+    func noteGeneratorAnalysisDrivenModeGeneratesDeterministicSequenceFromSyntheticImage() throws {
+        let sourceImage = try makeSyntheticSourceImage(
+            fileName: "note-generator-success",
+            draw: { context, width, height in
+                context.setFillColor(gray: 0.0, alpha: 1.0)
+                context.fill(CGRect(x: 10, y: 50, width: width - 20, height: 2))
+                context.fillEllipse(in: CGRect(x: 16, y: 39, width: 8, height: 8))
+                context.fillEllipse(in: CGRect(x: 56, y: 27, width: 8, height: 8))
+                context.fillEllipse(in: CGRect(x: 92, y: 35, width: 8, height: 8))
+            }
+        )
+
+        let module = NoteGeneratorModule(mode: .analysisDriven(LocalImageNoteAnalyzer()))
+
+        let firstOutput = module.generateNotes(
+            source_image: sourceImage,
+            note_generation_request: NoteGenerationRequest(request_id: "real-request-1")
+        )
+        let secondOutput = module.generateNotes(
+            source_image: sourceImage,
+            note_generation_request: NoteGenerationRequest(request_id: "real-request-2")
+        )
+
+        #expect(firstOutput.note_generation_result.status == .SUCCESS)
+        #expect(firstOutput.note_generation_result.reason == nil)
+        #expect(firstOutput.note_sequence == secondOutput.note_sequence)
+        #expect(firstOutput.note_sequence?.note_count == 3)
+        #expect(firstOutput.note_sequence?.events.map(\.order_index) == [0, 1, 2])
+        #expect(firstOutput.note_sequence?.events.map(\.start_offset_units) == [0, 1, 2])
+        #expect(firstOutput.note_sequence?.events.map(\.duration_units) == [1, 1, 1])
+        #expect(firstOutput.note_sequence?.events.map(\.pitch_rank) == [3, 1, 2])
+    }
+
+    @Test
+    func noteGeneratorAnalysisDrivenModeFailsWhenNoValidPowerlineExists() throws {
+        let sourceImage = try makeSyntheticSourceImage(
+            fileName: "note-generator-no-powerline",
+            draw: { _, _, _ in }
+        )
+
+        let module = NoteGeneratorModule(mode: .analysisDriven(LocalImageNoteAnalyzer()))
+        let output = module.generateNotes(
+            source_image: sourceImage,
+            note_generation_request: NoteGenerationRequest(request_id: "no-powerline")
+        )
+
+        #expect(output.note_sequence == nil)
+        #expect(output.note_generation_result.status == .FAILED)
+        #expect(output.note_generation_result.reason == .NO_VALID_POWERLINE)
+    }
+
+    @Test
+    func noteGeneratorAnalysisDrivenModeFailsWhenPowerlineHasNoBirds() throws {
+        let sourceImage = try makeSyntheticSourceImage(
+            fileName: "note-generator-no-birds",
+            draw: { context, width, _ in
+                context.setFillColor(gray: 0.0, alpha: 1.0)
+                context.fill(CGRect(x: 10, y: 50, width: width - 20, height: 2))
+            }
+        )
+
+        let module = NoteGeneratorModule(mode: .analysisDriven(LocalImageNoteAnalyzer()))
+        let output = module.generateNotes(
+            source_image: sourceImage,
+            note_generation_request: NoteGenerationRequest(request_id: "no-birds")
+        )
+
+        #expect(output.note_sequence == nil)
+        #expect(output.note_generation_result.status == .FAILED)
+        #expect(output.note_generation_result.reason == .NO_BIRDS_DETECTED)
+    }
+
+    @Test
+    func noteGeneratorAnalysisDrivenModeFailsForAmbiguousPowerlineSelection() {
+        let module = NoteGeneratorModule(
+            mode: .analysisDriven(
+                FixedNoteImageAnalyzer(
+                    result: .success([
+                        DetectedPowerline(
+                            centerY: 20,
+                            prominenceScore: 10_000,
+                            birds: [DetectedBird(centerX: 10, centerY: 10, darknessScore: 100)]
+                        ),
+                        DetectedPowerline(
+                            centerY: 40,
+                            prominenceScore: 10_000,
+                            birds: [DetectedBird(centerX: 30, centerY: 20, darknessScore: 100)]
+                        ),
+                    ])
+                )
+            )
+        )
+        let sourceImage = SourceImage(
+            image_id: "analysis-image",
+            origin_method: .SELECT_EXISTING_IMAGE,
+            image_reference: "/tmp/not-used"
+        )
+
+        let output = module.generateNotes(
+            source_image: sourceImage,
+            note_generation_request: NoteGenerationRequest(request_id: "ambiguous-powerline")
+        )
+
+        #expect(output.note_sequence == nil)
+        #expect(output.note_generation_result.status == .FAILED)
+        #expect(output.note_generation_result.reason == .AMBIGUOUS_POWERLINE_SELECTION)
+    }
+
+    @Test
+    func noteGeneratorAnalysisDrivenModeFailsForAmbiguousNoteOrder() {
+        let module = NoteGeneratorModule(
+            mode: .analysisDriven(
+                FixedNoteImageAnalyzer(
+                    result: .success([
+                        DetectedPowerline(
+                            centerY: 30,
+                            prominenceScore: 12_000,
+                            birds: [
+                                DetectedBird(centerX: 10.2, centerY: 18, darknessScore: 100),
+                                DetectedBird(centerX: 10.8, centerY: 22, darknessScore: 100),
+                            ]
+                        )
+                    ])
+                )
+            )
+        )
+        let sourceImage = SourceImage(
+            image_id: "analysis-image",
+            origin_method: .SELECT_EXISTING_IMAGE,
+            image_reference: "/tmp/not-used"
+        )
+
+        let output = module.generateNotes(
+            source_image: sourceImage,
+            note_generation_request: NoteGenerationRequest(request_id: "ambiguous-order")
+        )
+
+        #expect(output.note_sequence == nil)
+        #expect(output.note_generation_result.status == .FAILED)
+        #expect(output.note_generation_result.reason == .AMBIGUOUS_NOTE_ORDER)
+    }
+
+    @Test
+    func noteGeneratorAnalysisDrivenModeFailsWhenImageReferenceIsUnreadable() {
+        let module = NoteGeneratorModule(mode: .analysisDriven(LocalImageNoteAnalyzer()))
         let sourceImage = SourceImage(
             image_id: "stub-image-invalid",
             origin_method: .SELECT_EXISTING_IMAGE,
-            image_reference: "   "
+            image_reference: "/tmp/perch-notes-missing-image.png"
         )
 
         let output = module.generateNotes(
@@ -186,7 +333,7 @@ struct PerchNotesTests {
     }
 
     @Test
-    func audioGeneratorReturnsLoopableGeneratedAudioForValidSequence() {
+    func audioGeneratorReturnsDeterministicPlayableAudioForValidSequence() throws {
         let module = AudioGeneratorModule()
         let noteSequence = NoteSequence(
             source_image_id: "stub-image-select-existing-image",
@@ -198,17 +345,70 @@ struct PerchNotesTests {
             ]
         )
 
-        let output = module.generateAudio(
+        let firstOutput = module.generateAudio(
             note_sequence: noteSequence,
             audio_generation_request: AudioGenerationRequest(request_id: "audio-request-1")
         )
+        let secondOutput = module.generateAudio(
+            note_sequence: noteSequence,
+            audio_generation_request: AudioGenerationRequest(request_id: "audio-request-2")
+        )
 
-        #expect(output.audio_generation_result.status == .SUCCESS)
-        #expect(output.audio_generation_result.reason == nil)
-        #expect(output.generated_audio?.source_image_id == noteSequence.source_image_id)
-        #expect(output.generated_audio?.note_count == noteSequence.note_count)
-        #expect(output.generated_audio?.loopable == true)
-        #expect(output.generated_audio?.audio_reference == "stub://audio/stub-image-select-existing-image/3")
+        let firstAudioData = try #require(audioData(from: firstOutput.generated_audio?.audio_reference))
+        let secondAudioData = try #require(audioData(from: secondOutput.generated_audio?.audio_reference))
+
+        #expect(firstOutput.audio_generation_result.status == .SUCCESS)
+        #expect(firstOutput.audio_generation_result.reason == nil)
+        #expect(firstOutput.generated_audio == secondOutput.generated_audio)
+        #expect(firstOutput.generated_audio?.source_image_id == noteSequence.source_image_id)
+        #expect(firstOutput.generated_audio?.note_count == noteSequence.note_count)
+        #expect(firstOutput.generated_audio?.loopable == true)
+        #expect(firstOutput.generated_audio?.audio_reference.hasSuffix(".wav") == true)
+        #expect(firstAudioData == secondAudioData)
+        #expect(String(decoding: firstAudioData.prefix(4), as: UTF8.self) == "RIFF")
+        #expect(String(decoding: firstAudioData.dropFirst(8).prefix(4), as: UTF8.self) == "WAVE")
+        #expect(firstAudioData.count > 44)
+    }
+
+    @Test
+    func audioGeneratorFailsWhenSequenceStructureIsInvalid() {
+        let module = AudioGeneratorModule()
+        let invalidSequence = NoteSequence(
+            source_image_id: "stub-image-select-existing-image",
+            note_count: 3,
+            events: [
+                NoteEvent(order_index: 0, pitch_rank: 1, start_offset_units: 0, duration_units: 1),
+                NoteEvent(order_index: 2, pitch_rank: 2, start_offset_units: 2, duration_units: 1),
+            ]
+        )
+
+        let output = module.generateAudio(
+            note_sequence: invalidSequence,
+            audio_generation_request: AudioGenerationRequest(request_id: "audio-request-invalid-structure")
+        )
+
+        #expect(output.generated_audio == nil)
+        #expect(output.audio_generation_result.status == .FAILED)
+        #expect(output.audio_generation_result.reason == .INVALID_NOTE_SEQUENCE)
+    }
+
+    @Test
+    func audioGeneratorFailsWhenSequenceIsEmpty() {
+        let module = AudioGeneratorModule()
+        let emptySequence = NoteSequence(
+            source_image_id: "stub-image-select-existing-image",
+            note_count: 0,
+            events: []
+        )
+
+        let output = module.generateAudio(
+            note_sequence: emptySequence,
+            audio_generation_request: AudioGenerationRequest(request_id: "audio-request-empty")
+        )
+
+        #expect(output.generated_audio == nil)
+        #expect(output.audio_generation_result.status == .FAILED)
+        #expect(output.audio_generation_result.reason == .EMPTY_NOTE_SEQUENCE)
     }
 
     @Test
@@ -244,4 +444,82 @@ private final class FixedImageAcquisitionResponder: ImageAcquisitionResponding {
     func acquireImageResponse(for acquisitionMethod: ImageAcquisitionMethod) -> ImageAcquisitionResponse {
         response
     }
+}
+
+private final class FixedNoteImageAnalyzer: NoteImageAnalyzing {
+    private let result: NoteImageAnalysisResult
+
+    init(result: NoteImageAnalysisResult) {
+        self.result = result
+    }
+
+    func analyze(source_image: SourceImage) -> NoteImageAnalysisResult {
+        result
+    }
+}
+
+private func makeSyntheticSourceImage(
+    fileName: String,
+    width: Int = 120,
+    height: Int = 80,
+    draw: (CGContext, Int, Int) -> Void
+) throws -> SourceImage {
+    let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(fileName)-\(UUID().uuidString).png")
+
+    let colorSpace = CGColorSpaceCreateDeviceGray()
+    guard let context = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.none.rawValue
+    ) else {
+        throw SyntheticImageError.contextCreationFailed
+    }
+
+    context.setFillColor(gray: 1.0, alpha: 1.0)
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    context.translateBy(x: 0, y: CGFloat(height))
+    context.scaleBy(x: 1, y: -1)
+    draw(context, width, height)
+
+    guard let image = context.makeImage(),
+          let destination = CGImageDestinationCreateWithURL(fileURL as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+        throw SyntheticImageError.imageEncodingFailed
+    }
+
+    CGImageDestinationAddImage(destination, image, nil)
+    guard CGImageDestinationFinalize(destination) else {
+        throw SyntheticImageError.imageEncodingFailed
+    }
+
+    return SourceImage(
+        image_id: "synthetic-\(fileName)",
+        origin_method: .SELECT_EXISTING_IMAGE,
+        image_reference: fileURL.absoluteString
+    )
+}
+
+private enum SyntheticImageError: Error {
+    case contextCreationFailed
+    case imageEncodingFailed
+}
+
+private func audioData(from audioReference: String?) -> Data? {
+    guard let audioReference else {
+        return nil
+    }
+
+    if let url = URL(string: audioReference), url.isFileURL {
+        return try? Data(contentsOf: url)
+    }
+
+    let fileURL = URL(fileURLWithPath: audioReference)
+    guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        return nil
+    }
+
+    return try? Data(contentsOf: fileURL)
 }
