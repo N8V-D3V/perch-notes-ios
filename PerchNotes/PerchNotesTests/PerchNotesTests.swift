@@ -541,7 +541,7 @@ struct PerchNotesTests {
     }
 
     @Test
-    func corePipelineDemoRunnerRunsRealPipelineForSelectedImage() throws {
+    func corePipelineEntryRunnerRunsRealPipelineForSelectedImage() throws {
         let sourceImage = try makeSyntheticSourceImage(
             fileName: "core-pipeline-real-demo-success",
             draw: { context, width, _ in
@@ -559,7 +559,7 @@ struct PerchNotesTests {
                 image_reference: sourceImage.image_reference
             )
         )
-        let runner = CorePipelineDemoRunner()
+        let runner = CorePipelineEntryRunner()
 
         let run = runner.runRealPipeline(
             imageAcquisitionRequest: ImageAcquisitionRequest(acquisition_method: .SELECT_EXISTING_IMAGE),

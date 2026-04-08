@@ -1,5 +1,5 @@
 //
-//  CorePipelineDemoView.swift
+//  CorePipelineEntryView.swift
 //  PerchNotes
 //
 //  Created by Codex on 4/7/26.
@@ -10,8 +10,8 @@ import Foundation
 import SwiftUI
 import UIKit
 
-struct CorePipelineDemoView: View {
-    @State private var latestRun: CorePipelineDemoRun?
+struct CorePipelineEntryView: View {
+    @State private var latestRun: CorePipelineEntryRun?
     @State private var activeAcquisitionMethod: ImageAcquisitionMethod?
     @State private var pendingRunMethod: ImageAcquisitionMethod?
     @State private var pendingCameraPermissionState = CameraPermissionState(state: .UNKNOWN)
@@ -21,7 +21,7 @@ struct CorePipelineDemoView: View {
     @State private var successToastDismissWorkItem: DispatchWorkItem?
     @StateObject private var loopPlaybackController = CorePipelineLoopPlaybackController()
 
-    private let demoRunner = CorePipelineDemoRunner()
+    private let entryRunner = CorePipelineEntryRunner()
 
     var body: some View {
         NavigationStack {
@@ -246,7 +246,7 @@ struct CorePipelineDemoView: View {
         acquisitionMethod: ImageAcquisitionMethod,
         cameraPermissionState: CameraPermissionState
     ) {
-        latestRun = demoRunner.runRealPipeline(
+        latestRun = entryRunner.runRealPipeline(
             imageAcquisitionRequest: ImageAcquisitionRequest(acquisition_method: acquisitionMethod),
             cameraPermissionState: cameraPermissionState,
             acquisitionResponder: acquisitionResponder

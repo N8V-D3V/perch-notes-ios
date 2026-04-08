@@ -1,5 +1,5 @@
 //
-//  CorePipelineDemoRunner.swift
+//  CorePipelineEntryRunner.swift
 //  PerchNotes
 //
 //  Created by Codex on 4/7/26.
@@ -7,18 +7,18 @@
 
 import Foundation
 
-struct CorePipelineDemoRun {
+struct CorePipelineEntryRun {
     let request: CorePipelineRequest
     let result: CorePipelineResult
     let logLines: [String]
 }
 
-struct CorePipelineDemoRunner {
+struct CorePipelineEntryRunner {
     func runRealPipeline(
         imageAcquisitionRequest: ImageAcquisitionRequest,
         cameraPermissionState: CameraPermissionState,
         acquisitionResponder: any ImageAcquisitionResponding
-    ) -> CorePipelineDemoRun {
+    ) -> CorePipelineEntryRun {
         let request = CorePipelineRequest(
             image_acquisition_request: imageAcquisitionRequest,
             camera_permission_state: cameraPermissionState
@@ -36,7 +36,7 @@ struct CorePipelineDemoRunner {
         )
         let result = orchestrator.runPipeline(request: request)
 
-        return CorePipelineDemoRun(
+        return CorePipelineEntryRun(
             request: request,
             result: result,
             logLines: logLines
