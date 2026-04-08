@@ -25,16 +25,16 @@ struct CorePipelineEntryView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    headerSection
-                    successToastSection
-                    failureBannerSection
-                    controlsSection
-                    playbackSection
-                }
-                .padding(20)
+            VStack(spacing: 20) {
+                headerSection
+                successToastSection
+                failureBannerSection
+                previewSection
+                centralActionSection
+                Spacer(minLength: 0)
+                controlsSection
             }
+            .padding(20)
             .navigationTitle("PerchNotes")
             .sheet(item: $activeAcquisitionMethod, onDismiss: handleAcquisitionDismissal) { acquisitionMethod in
                 ImageProviderAcquisitionSheet(
@@ -53,14 +53,17 @@ struct CorePipelineEntryView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Turn Perches Into Loops")
                 .font(.title.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Text("Choose or capture a bird-on-powerline image and PerchNotes will turn it into a musical loop.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Text("Clear, high-contrast powerlines with visible birds work best.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -108,37 +111,134 @@ struct CorePipelineEntryView: View {
     }
 
     private var controlsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 12) {
             Button("Choose Photo") {
                 startSelectionPipeline()
             }
             .buttonStyle(.borderedProminent)
+            .frame(maxWidth: .infinity)
             .disabled(isBusy)
 
             Button("Take Photo") {
                 startCapturePipeline()
             }
             .buttonStyle(.bordered)
+            .frame(maxWidth: .infinity)
             .disabled(isBusy)
 
             if isRequestingCameraPermission {
                 Text("Checking camera access...")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
             } else if activeAcquisitionMethod != nil {
                 Text("Waiting for your image...")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
-    private var playbackSection: some View {
-        if let generatedAudio = latestRun?.result.audio_generation_outcome?.generated_audio,
-           latestRun?.result.final_pipeline_status == .SUCCESS {
-            playbackControls(for: generatedAudio)
+    private var previewSection: some View {
+        let preview = previewState
+
+        ZStack {
+            RoundedRectangle(cornerRadius: 24)
+                .fill(Color(.secondarySystemBackground))
+
+            switch preview {
+            case .image(let image):
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
+
+            case .cameraReady:
+                previewPlaceholder(
+                    systemImage: "camera.viewfinder",
+                    title: "Camera Preview",
+                    message: "Take a perch photo and PerchNotes will bring it back here."
+                )
+
+            case .empty:
+                previewPlaceholder(
+                    systemImage: "photo.on.rectangle.angled",
+                    title: "Your Photo Appears Here",
+                    message: "Choose a photo or take a new one to turn perches into a loop."
+                )
+            }
         }
+        .frame(maxWidth: .infinity)
+        .aspectRatio(1, contentMode: .fit)
+        .overlay {
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+    }
+
+    private var centralActionSection: some View {
+        VStack(spacing: 12) {
+            if let generatedAudio = latestRun?.result.audio_generation_outcome?.generated_audio,
+               latestRun?.result.final_pipeline_status == .SUCCESS {
+                playbackControls(for: generatedAudio)
+            } else {
+                VStack(spacing: 8) {
+                    Text("Ready When You Are")
+                        .font(.headline.weight(.semibold))
+
+                    Text("Pick a bird-on-powerline image to create a loop you can play right here.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var previewState: PreviewState {
+        if let sourceImage = latestRun?.result.image_acquisition_outcome.source_image,
+           let uiImage = previewImage(from: sourceImage.image_reference) {
+            return .image(uiImage)
+        }
+
+        if activeAcquisitionMethod == .CAPTURE_NEW_IMAGE {
+            return .cameraReady
+        }
+
+        return .empty
+    }
+
+    private func previewImage(from imageReference: String) -> UIImage? {
+        if let url = URL(string: imageReference), url.isFileURL {
+            return UIImage(contentsOfFile: url.path)
+        }
+
+        return UIImage(contentsOfFile: imageReference)
+    }
+
+    @ViewBuilder
+    private func previewPlaceholder(systemImage: String, title: String, message: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 34, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Text(title)
+                .font(.headline.weight(.semibold))
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(24)
     }
 
     @ViewBuilder
@@ -147,18 +247,24 @@ struct CorePipelineEntryView: View {
             loopPlaybackController.isPlaying
             && loopPlaybackController.activeAudioReference == generatedAudio.audio_reference
 
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 12) {
             Button(isPlayingCurrentLoop ? "Stop Loop" : "Play Loop") {
                 loopPlaybackController.togglePlayback(audioReference: generatedAudio.audio_reference)
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .font(.title3.weight(.semibold))
+            .frame(maxWidth: .infinity)
 
             if let playbackErrorMessage = loopPlaybackController.playbackErrorMessage {
                 Text(playbackErrorMessage)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
     }
 
     private var isBusy: Bool {
@@ -168,6 +274,7 @@ struct CorePipelineEntryView: View {
     private func startSelectionPipeline() {
         loopPlaybackController.stopPlayback()
         hideSuccessToast()
+        latestRun = nil
         pendingRunMethod = .SELECT_EXISTING_IMAGE
         pendingCameraPermissionState = CameraPermissionState(state: .UNKNOWN)
         activeAcquisitionMethod = .SELECT_EXISTING_IMAGE
@@ -176,6 +283,7 @@ struct CorePipelineEntryView: View {
     private func startCapturePipeline() {
         loopPlaybackController.stopPlayback()
         hideSuccessToast()
+        latestRun = nil
         pendingRunMethod = .CAPTURE_NEW_IMAGE
 
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
@@ -279,6 +387,12 @@ struct CorePipelineEntryView: View {
         successToastDismissWorkItem = nil
         isSuccessToastVisible = false
     }
+}
+
+private enum PreviewState {
+    case image(UIImage)
+    case cameraReady
+    case empty
 }
 
 extension ImageAcquisitionMethod: Identifiable {
