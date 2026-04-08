@@ -6,6 +6,7 @@
 //
 
 import AVFoundation
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -16,6 +17,8 @@ struct CorePipelineDemoView: View {
     @State private var pendingCameraPermissionState = CameraPermissionState(state: .UNKNOWN)
     @State private var acquisitionResponder = InteractiveImageAcquisitionResponder()
     @State private var isRequestingCameraPermission = false
+    @State private var isSuccessToastVisible = false
+    @State private var successToastDismissWorkItem: DispatchWorkItem?
     @StateObject private var loopPlaybackController = CorePipelineLoopPlaybackController()
 
     private let demoRunner = CorePipelineDemoRunner()
@@ -25,11 +28,10 @@ struct CorePipelineDemoView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     headerSection
+                    successToastSection
                     failureBannerSection
                     controlsSection
-                    if shouldShowSummarySection {
-                        summarySection
-                    }
+                    playbackSection
                 }
                 .padding(20)
             }
@@ -59,6 +61,22 @@ struct CorePipelineDemoView: View {
             Text("Clear, high-contrast powerlines with visible birds work best.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var successToastSection: some View {
+        if isSuccessToastVisible {
+            Text("Loop ready")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .background(Color.green.opacity(0.14), in: RoundedRectangle(cornerRadius: 12))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.green.opacity(0.35), lineWidth: 1)
+                }
+                .transition(.opacity)
         }
     }
 
@@ -116,86 +134,10 @@ struct CorePipelineDemoView: View {
     }
 
     @ViewBuilder
-    private var summarySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Latest Result")
-                .font(.headline)
-
-            if let latestRun {
-                summaryContent(for: latestRun)
-            } else {
-                Text("Choose a photo or take a new one to create your first PerchNotes loop.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    @ViewBuilder
-    private func summaryContent(for run: CorePipelineDemoRun) -> some View {
-        if run.result.final_pipeline_status == .SUCCESS {
-            Text("Your image was turned into a loop.")
-                .font(.subheadline.weight(.semibold))
-
-            Text("A note sequence and audio loop were created from your image.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            resultRow(label: "Status", value: "Loop ready")
-            resultRow(label: "Image Source", value: imageSourceSummary(for: run))
-            resultRow(
-                label: "Notes",
-                value: run.result.note_generation_outcome?.note_sequence?.note_count.description ?? "Not available"
-            )
-            resultRow(
-                label: "Audio",
-                value: run.result.audio_generation_outcome?.generated_audio != nil ? "Ready" : "Not available"
-            )
-
-            if let generatedAudio = run.result.audio_generation_outcome?.generated_audio {
-                playbackControls(for: generatedAudio)
-
-                Text("Loop ID: \(generatedAudio.audio_id)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-        } else if let failurePresentation = CorePipelineFailurePresentation.make(from: run.result) {
-            Text(failurePresentation.title)
-                .font(.subheadline.weight(.semibold))
-
-            Text(failurePresentation.message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            resultRow(label: "Status", value: "Try another photo")
-            resultRow(label: "Image Source", value: imageSourceSummary(for: run))
-
-            if let recoveryHint = failurePresentation.recoveryHint {
-                resultRow(label: "Tip", value: recoveryHint)
-            }
-        } else {
-            Text("PerchNotes couldn’t finish this image.")
-                .font(.subheadline.weight(.semibold))
-
-            Text("Try another image with clearly visible birds perched on a powerline.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            resultRow(label: "Status", value: "Try another photo")
-            resultRow(label: "Image Source", value: imageSourceSummary(for: run))
-        }
-    }
-
-    private func resultRow(label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.body)
+    private var playbackSection: some View {
+        if let generatedAudio = latestRun?.result.audio_generation_outcome?.generated_audio,
+           latestRun?.result.final_pipeline_status == .SUCCESS {
+            playbackControls(for: generatedAudio)
         }
     }
 
@@ -219,29 +161,13 @@ struct CorePipelineDemoView: View {
         }
     }
 
-    private func imageSourceSummary(for run: CorePipelineDemoRun) -> String {
-        switch run.request.image_acquisition_request.acquisition_method {
-        case .CAPTURE_NEW_IMAGE:
-            return "Camera"
-        case .SELECT_EXISTING_IMAGE:
-            return "Photo Library"
-        }
-    }
-
     private var isBusy: Bool {
         activeAcquisitionMethod != nil || isRequestingCameraPermission
     }
 
-    private var shouldShowSummarySection: Bool {
-        guard let latestRun else {
-            return true
-        }
-
-        return latestRun.result.final_pipeline_status == .SUCCESS
-    }
-
     private func startSelectionPipeline() {
         loopPlaybackController.stopPlayback()
+        hideSuccessToast()
         pendingRunMethod = .SELECT_EXISTING_IMAGE
         pendingCameraPermissionState = CameraPermissionState(state: .UNKNOWN)
         activeAcquisitionMethod = .SELECT_EXISTING_IMAGE
@@ -249,6 +175,7 @@ struct CorePipelineDemoView: View {
 
     private func startCapturePipeline() {
         loopPlaybackController.stopPlayback()
+        hideSuccessToast()
         pendingRunMethod = .CAPTURE_NEW_IMAGE
 
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
@@ -325,12 +252,32 @@ struct CorePipelineDemoView: View {
             acquisitionResponder: acquisitionResponder
         )
 
-        if latestRun?.result.final_pipeline_status != .SUCCESS {
+        if latestRun?.result.final_pipeline_status == .SUCCESS {
+            showSuccessToast()
+        } else {
             loopPlaybackController.stopPlayback()
+            hideSuccessToast()
         }
 
         pendingRunMethod = nil
         activeAcquisitionMethod = nil
+    }
+
+    private func showSuccessToast() {
+        successToastDismissWorkItem?.cancel()
+        isSuccessToastVisible = true
+
+        let dismissWorkItem = DispatchWorkItem {
+            isSuccessToastVisible = false
+        }
+        successToastDismissWorkItem = dismissWorkItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4, execute: dismissWorkItem)
+    }
+
+    private func hideSuccessToast() {
+        successToastDismissWorkItem?.cancel()
+        successToastDismissWorkItem = nil
+        isSuccessToastVisible = false
     }
 }
 

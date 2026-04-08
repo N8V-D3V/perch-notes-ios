@@ -69,6 +69,9 @@ struct DetectedPowerline {
     let centralityScore: Double
     let residualLineThickness: Double
     let averageSupportThickness: Double
+    let continuityRatio: Double
+    let maximumGapRatio: Double
+    let averageAlignmentError: Double
 
     init(
         centerY: Double,
@@ -80,7 +83,10 @@ struct DetectedPowerline {
         averageBirdDistance: Double = 0,
         centralityScore: Double = 0,
         residualLineThickness: Double = 0,
-        averageSupportThickness: Double = 0
+        averageSupportThickness: Double = 0,
+        continuityRatio: Double = 0,
+        maximumGapRatio: Double = 0,
+        averageAlignmentError: Double = 0
     ) {
         self.centerY = centerY
         self.prominenceScore = prominenceScore
@@ -92,6 +98,9 @@ struct DetectedPowerline {
         self.centralityScore = centralityScore
         self.residualLineThickness = residualLineThickness
         self.averageSupportThickness = averageSupportThickness
+        self.continuityRatio = continuityRatio
+        self.maximumGapRatio = maximumGapRatio
+        self.averageAlignmentError = averageAlignmentError
     }
 }
 
@@ -151,7 +160,7 @@ struct NoteGeneratorModule: NoteGenerator {
                 }
 
                 log(
-                    "selected powerline: center_y=\(format(selectedPowerline.centerY)), slope=\(format(selectedPowerline.slope)), prominence_score=\(format(selectedPowerline.prominenceScore)), bird_count=\(selectedPowerline.birds.count), span_width=\(format(selectedPowerline.spanWidth)), support_count=\(selectedPowerline.supportCount), average_bird_distance=\(format(selectedPowerline.averageBirdDistance)), centrality_score=\(format(selectedPowerline.centralityScore)), residual_line_thickness=\(format(selectedPowerline.residualLineThickness)), average_support_thickness=\(format(selectedPowerline.averageSupportThickness))"
+                    "selected powerline: center_y=\(format(selectedPowerline.centerY)), slope=\(format(selectedPowerline.slope)), prominence_score=\(format(selectedPowerline.prominenceScore)), bird_count=\(selectedPowerline.birds.count), span_width=\(format(selectedPowerline.spanWidth)), support_count=\(selectedPowerline.supportCount), average_bird_distance=\(format(selectedPowerline.averageBirdDistance)), centrality_score=\(format(selectedPowerline.centralityScore)), residual_line_thickness=\(format(selectedPowerline.residualLineThickness)), average_support_thickness=\(format(selectedPowerline.averageSupportThickness)), continuity_ratio=\(format(selectedPowerline.continuityRatio)), maximum_gap_ratio=\(format(selectedPowerline.maximumGapRatio)), average_alignment_error=\(format(selectedPowerline.averageAlignmentError))"
                 )
 
                 guard selectedPowerline.birds.isEmpty == false else {
@@ -261,8 +270,20 @@ struct NoteGeneratorModule: NoteGenerator {
             return lhs.supportCount > rhs.supportCount
         }
 
+        if abs(lhs.continuityRatio - rhs.continuityRatio) >= 0.0001 {
+            return lhs.continuityRatio > rhs.continuityRatio
+        }
+
         if abs(lhs.averageBirdDistance - rhs.averageBirdDistance) >= 0.0001 {
             return lhs.averageBirdDistance < rhs.averageBirdDistance
+        }
+
+        if abs(lhs.maximumGapRatio - rhs.maximumGapRatio) >= 0.0001 {
+            return lhs.maximumGapRatio < rhs.maximumGapRatio
+        }
+
+        if abs(lhs.averageAlignmentError - rhs.averageAlignmentError) >= 0.0001 {
+            return lhs.averageAlignmentError < rhs.averageAlignmentError
         }
 
         if abs(lhs.residualLineThickness - rhs.residualLineThickness) >= 0.0001 {
@@ -290,6 +311,9 @@ struct NoteGeneratorModule: NoteGenerator {
             && abs(lhs.spanWidth - rhs.spanWidth) < 0.0001
             && lhs.supportCount == rhs.supportCount
             && abs(lhs.averageBirdDistance - rhs.averageBirdDistance) < 0.0001
+            && abs(lhs.continuityRatio - rhs.continuityRatio) < 0.0001
+            && abs(lhs.maximumGapRatio - rhs.maximumGapRatio) < 0.0001
+            && abs(lhs.averageAlignmentError - rhs.averageAlignmentError) < 0.0001
             && abs(lhs.residualLineThickness - rhs.residualLineThickness) < 0.0001
             && abs(lhs.averageSupportThickness - rhs.averageSupportThickness) < 0.0001
             && abs(lhs.centralityScore - rhs.centralityScore) < 0.0001
@@ -393,7 +417,7 @@ struct NoteGeneratorModule: NoteGenerator {
     }
 
     private func describeSelection(_ powerline: DetectedPowerline) -> String {
-        "center_y=\(format(powerline.centerY)), slope=\(format(powerline.slope)), prominence=\(format(powerline.prominenceScore)), birds=\(powerline.birds.count), span_width=\(format(powerline.spanWidth)), support_count=\(powerline.supportCount), avg_bird_distance=\(format(powerline.averageBirdDistance)), residual_line_thickness=\(format(powerline.residualLineThickness)), average_support_thickness=\(format(powerline.averageSupportThickness)), centrality=\(format(powerline.centralityScore))"
+        "center_y=\(format(powerline.centerY)), slope=\(format(powerline.slope)), prominence=\(format(powerline.prominenceScore)), birds=\(powerline.birds.count), span_width=\(format(powerline.spanWidth)), support_count=\(powerline.supportCount), avg_bird_distance=\(format(powerline.averageBirdDistance)), continuity_ratio=\(format(powerline.continuityRatio)), maximum_gap_ratio=\(format(powerline.maximumGapRatio)), average_alignment_error=\(format(powerline.averageAlignmentError)), residual_line_thickness=\(format(powerline.residualLineThickness)), average_support_thickness=\(format(powerline.averageSupportThickness)), centrality=\(format(powerline.centralityScore))"
     }
 
     private func format(_ value: Double) -> String {

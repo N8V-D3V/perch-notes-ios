@@ -19,7 +19,6 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
             return .failure(.IMAGE_ANALYSIS_FAILED)
         }
 
-        let components = detectConnectedComponents(in: image)
         let lineCandidates = detectLineSupports(in: image)
 
         guard lineCandidates.isEmpty == false else {
@@ -27,7 +26,7 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
         }
 
         let validPowerlines = lineCandidates.compactMap { lineSupport in
-            makeDetectedPowerline(from: lineSupport, among: components, image: image)
+            makeDetectedPowerline(from: lineSupport, image: image)
         }
 
         guard validPowerlines.isEmpty == false else {
@@ -44,6 +43,9 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
         let minimumSupport = max(18, image.width / 10)
         let maximumResidualThickness = max(2.5, Double(image.height) * 0.018)
         let maximumAverageSupportThickness = max(2.4, Double(image.height) * 0.015)
+        let minimumContinuityRatio = 0.46
+        let maximumGapRatio = 0.38
+        let maximumAlignmentError = max(3.2, Double(image.height) * 0.02)
         let maximumCandidates = 16
         let slopes = stride(from: -0.35, through: 0.35, by: 0.025).map { value in
             Double(round(value * 1_000) / 1_000)
@@ -81,12 +83,23 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
             let expectedVerticalRange = abs(accumulator.slope) * spanWidth
             let residualThickness = max(0.0, observedVerticalRange - expectedVerticalRange)
             let averageSupportThickness = Double(accumulator.supportCount) / max(1.0, spanWidth)
+            let intercept = Double(accumulator.interceptBin) * interceptBinSize
+            let lineProfile = measureLineProfile(
+                in: image,
+                slope: accumulator.slope,
+                intercept: intercept,
+                minX: accumulator.minX,
+                maxX: accumulator.maxX,
+                threshold: lineThreshold
+            )
             guard residualThickness <= maximumResidualThickness,
-                  averageSupportThickness <= maximumAverageSupportThickness else {
+                  averageSupportThickness <= maximumAverageSupportThickness,
+                  lineProfile.continuityRatio >= minimumContinuityRatio,
+                  lineProfile.maximumGapRatio <= maximumGapRatio,
+                  lineProfile.averageAlignmentError <= maximumAlignmentError else {
                 return nil
             }
 
-            let intercept = Double(accumulator.interceptBin) * interceptBinSize
             let centerX = (Double(accumulator.minX) + Double(accumulator.maxX)) / 2.0
             let centerY = (accumulator.slope * centerX) + intercept
             let averageDarkness = accumulator.darknessTotal / Double(accumulator.supportCount)
@@ -94,8 +107,11 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
                 (spanWidth * 120.0)
                 + (Double(accumulator.supportCount) * 14.0)
                 + averageDarkness
+                + (lineProfile.continuityRatio * 700.0)
                 - (residualThickness * 250.0)
                 - (averageSupportThickness * 400.0)
+                - (lineProfile.maximumGapRatio * 900.0)
+                - (lineProfile.averageAlignmentError * 260.0)
 
             return DetectedLineSupport(
                 slope: accumulator.slope,
@@ -106,7 +122,10 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
                 supportCount: accumulator.supportCount,
                 supportScore: supportScore,
                 residualThickness: residualThickness,
-                averageSupportThickness: averageSupportThickness
+                averageSupportThickness: averageSupportThickness,
+                continuityRatio: lineProfile.continuityRatio,
+                maximumGapRatio: lineProfile.maximumGapRatio,
+                averageAlignmentError: lineProfile.averageAlignmentError
             )
         }
 
@@ -129,6 +148,18 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
 
             if abs(lhs.averageSupportThickness - rhs.averageSupportThickness) >= 0.0001 {
                 return lhs.averageSupportThickness < rhs.averageSupportThickness
+            }
+
+            if abs(lhs.continuityRatio - rhs.continuityRatio) >= 0.0001 {
+                return lhs.continuityRatio > rhs.continuityRatio
+            }
+
+            if abs(lhs.maximumGapRatio - rhs.maximumGapRatio) >= 0.0001 {
+                return lhs.maximumGapRatio < rhs.maximumGapRatio
+            }
+
+            if abs(lhs.averageAlignmentError - rhs.averageAlignmentError) >= 0.0001 {
+                return lhs.averageAlignmentError < rhs.averageAlignmentError
             }
 
             if abs(lhs.slope - rhs.slope) >= 0.0001 {
@@ -157,8 +188,114 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
         return deduplicatedSupports
     }
 
-    private func detectConnectedComponents(in image: GrayscaleImage) -> [ConnectedComponent] {
-        let darkThreshold: UInt8 = 125
+    private func measureLineProfile(
+        in image: GrayscaleImage,
+        slope: Double,
+        intercept: Double,
+        minX: Int,
+        maxX: Int,
+        threshold: UInt8
+    ) -> LineProfile {
+        let sampleStep = max(2, image.width / 90)
+        let verticalSearchRadius = max(4, image.height / 28)
+        let maximumThicknessSearch = max(3, image.height / 60)
+
+        var sampleCount = 0
+        var supportedSamples = 0
+        var currentGap = 0
+        var maximumGap = 0
+        var totalAlignmentError = 0.0
+
+        for x in stride(from: minX, through: maxX, by: sampleStep) {
+            sampleCount += 1
+            let predictedY = Int(((slope * Double(x)) + intercept).rounded())
+            let searchMinY = max(0, predictedY - verticalSearchRadius)
+            let searchMaxY = min(image.height - 1, predictedY + verticalSearchRadius)
+
+            var closestDarkY: Int?
+            var closestDistance = Int.max
+
+            for y in searchMinY...searchMaxY {
+                guard image.isDark(x: x, y: y, threshold: threshold) else {
+                    continue
+                }
+
+                let distance = abs(y - predictedY)
+                if distance < closestDistance {
+                    closestDistance = distance
+                    closestDarkY = y
+                }
+            }
+
+            guard let matchedY = closestDarkY else {
+                currentGap += 1
+                maximumGap = max(maximumGap, currentGap)
+                continue
+            }
+
+            let thickness = measuredVerticalThickness(
+                in: image,
+                x: x,
+                y: matchedY,
+                threshold: threshold,
+                maximumThicknessSearch: maximumThicknessSearch
+            )
+            if thickness > maximumThicknessSearch {
+                currentGap += 1
+                maximumGap = max(maximumGap, currentGap)
+                continue
+            }
+
+            supportedSamples += 1
+            currentGap = 0
+            totalAlignmentError += Double(closestDistance)
+        }
+
+        guard sampleCount > 0, supportedSamples > 0 else {
+            return LineProfile(
+                continuityRatio: 0,
+                maximumGapRatio: 1,
+                averageAlignmentError: Double(verticalSearchRadius)
+            )
+        }
+
+        return LineProfile(
+            continuityRatio: Double(supportedSamples) / Double(sampleCount),
+            maximumGapRatio: Double(maximumGap) / Double(sampleCount),
+            averageAlignmentError: totalAlignmentError / Double(supportedSamples)
+        )
+    }
+
+    private func measuredVerticalThickness(
+        in image: GrayscaleImage,
+        x: Int,
+        y: Int,
+        threshold: UInt8,
+        maximumThicknessSearch: Int
+    ) -> Int {
+        var minY = y
+        var maxY = y
+
+        while minY > 0,
+              y - minY < maximumThicknessSearch,
+              image.isDark(x: x, y: minY - 1, threshold: threshold) {
+            minY -= 1
+        }
+
+        while maxY < image.height - 1,
+              maxY - y < maximumThicknessSearch,
+              image.isDark(x: x, y: maxY + 1, threshold: threshold) {
+            maxY += 1
+        }
+
+        return (maxY - minY) + 1
+    }
+
+    private func detectConnectedComponents(
+        in image: GrayscaleImage,
+        threshold: UInt8,
+        shouldIncludePixel: ((Int, Int) -> Bool)? = nil
+    ) -> [ConnectedComponent] {
         var visited = [Bool](repeating: false, count: image.width * image.height)
         var components: [ConnectedComponent] = []
 
@@ -170,7 +307,8 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
                 }
 
                 visited[index] = true
-                guard image.isDark(x: x, y: y, threshold: darkThreshold) else {
+                guard image.isDark(x: x, y: y, threshold: threshold),
+                      shouldIncludePixel?(x, y) ?? true else {
                     continue
                 }
 
@@ -192,7 +330,8 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
                             }
 
                             visited[neighborIndex] = true
-                            if image.isDark(x: neighborX, y: neighborY, threshold: darkThreshold) {
+                            if image.isDark(x: neighborX, y: neighborY, threshold: threshold),
+                               shouldIncludePixel?(neighborX, neighborY) ?? true {
                                 queue.append((neighborX, neighborY))
                             }
                         }
@@ -208,13 +347,15 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
 
     private func makeDetectedPowerline(
         from lineSupport: DetectedLineSupport,
-        among allComponents: [ConnectedComponent],
         image: GrayscaleImage
     ) -> DetectedPowerline? {
-        let verticalBirdDistance = max(14.0, Double(image.height) * 0.14)
-        let maximumBirdWidth = max(8, image.width / 6)
-        let maximumBirdHeight = max(8, image.height / 5)
-        let horizontalPadding = max(10.0, Double(image.width) * 0.03)
+        let verticalBirdDistance = max(18.0, Double(image.height) * 0.17)
+        let maximumBirdWidth = max(10, image.width / 4)
+        let maximumBirdHeight = max(10, image.height / 4)
+        let horizontalPadding = max(14.0, Double(image.width) * 0.05)
+        let belowLineAllowance = max(6.0, Double(image.height) * 0.05)
+        let aboveLineAllowance = max(18.0, Double(image.height) * 0.18)
+        let allComponents = detectBirdComponents(near: lineSupport, in: image)
 
         let birdComponents = allComponents.filter { component in
             guard component.area >= 8,
@@ -222,22 +363,36 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
                   component.height >= 2,
                   component.width <= maximumBirdWidth,
                   component.height <= maximumBirdHeight,
-                  component.width <= (component.height * 2) + 2 else {
+                  component.width <= (component.height * 3) + 4 else {
                 return false
             }
 
-            guard component.centerX >= Double(lineSupport.minX) - horizontalPadding,
-                  component.centerX <= Double(lineSupport.maxX) + horizontalPadding else {
+            guard component.maxX >= Double(lineSupport.minX) - horizontalPadding,
+                  component.minX <= Double(lineSupport.maxX) + horizontalPadding else {
                 return false
             }
 
             let predictedLineY = lineSupport.yPosition(atX: component.centerX)
-            let verticalDistance = abs(component.centerY - predictedLineY)
-            guard verticalDistance <= verticalBirdDistance else {
+            let nearestVerticalDistance: Double
+            if predictedLineY < component.minY {
+                nearestVerticalDistance = component.minY - predictedLineY
+            } else if predictedLineY > component.maxY {
+                nearestVerticalDistance = predictedLineY - component.maxY
+            } else {
+                nearestVerticalDistance = 0
+            }
+
+            let isPerchedNearLine =
+                component.minY <= predictedLineY + belowLineAllowance
+                && component.maxY >= predictedLineY - aboveLineAllowance
+            let minimumPerchY = component.minY + (Double(component.height) * 0.35)
+            guard nearestVerticalDistance <= verticalBirdDistance,
+                  isPerchedNearLine,
+                  predictedLineY >= minimumPerchY else {
                 return false
             }
 
-            return component.width < Int(max(10.0, lineSupport.spanWidth * 0.35))
+            return component.width < Int(max(14.0, lineSupport.spanWidth * 0.45))
         }
 
         guard birdComponents.isEmpty == false else {
@@ -262,10 +417,13 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
             (Double(birds.count) * 100_000.0)
             + (lineSupport.spanWidth * 200.0)
             + (Double(lineSupport.supportCount) * 20.0)
+            + (lineSupport.continuityRatio * 900.0)
             + (centralityScore * 10.0)
             - (averageBirdDistance * 50.0)
             - (lineSupport.residualThickness * 200.0)
             - (lineSupport.averageSupportThickness * 250.0)
+            - (lineSupport.maximumGapRatio * 950.0)
+            - (lineSupport.averageAlignmentError * 280.0)
             + lineSupport.supportScore
 
         return DetectedPowerline(
@@ -278,8 +436,44 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
             averageBirdDistance: averageBirdDistance,
             centralityScore: centralityScore,
             residualLineThickness: lineSupport.residualThickness,
-            averageSupportThickness: lineSupport.averageSupportThickness
+            averageSupportThickness: lineSupport.averageSupportThickness,
+            continuityRatio: lineSupport.continuityRatio,
+            maximumGapRatio: lineSupport.maximumGapRatio,
+            averageAlignmentError: lineSupport.averageAlignmentError
         )
+    }
+
+    private func detectBirdComponents(
+        near lineSupport: DetectedLineSupport,
+        in image: GrayscaleImage
+    ) -> [ConnectedComponent] {
+        let birdThreshold: UInt8 = 145
+        let horizontalPadding = max(14.0, Double(image.width) * 0.05)
+        let searchTopAllowance = max(22.0, Double(image.height) * 0.22)
+        let searchBottomAllowance = max(8.0, Double(image.height) * 0.06)
+        let lineMaskHalfThickness = max(1.0, min(2.0, lineSupport.averageSupportThickness.rounded()))
+        let lineMaskSpanPadding = max(8.0, Double(image.width) * 0.02)
+
+        return detectConnectedComponents(in: image, threshold: birdThreshold) { x, y in
+            let xPosition = Double(x)
+            let yPosition = Double(y)
+            guard xPosition >= Double(lineSupport.minX) - horizontalPadding,
+                  xPosition <= Double(lineSupport.maxX) + horizontalPadding else {
+                return false
+            }
+
+            let predictedLineY = lineSupport.yPosition(atX: xPosition)
+            guard yPosition >= predictedLineY - searchTopAllowance,
+                  yPosition <= predictedLineY + searchBottomAllowance else {
+                return false
+            }
+
+            let isInsideMaskedSpan =
+                xPosition >= Double(lineSupport.minX) - lineMaskSpanPadding
+                && xPosition <= Double(lineSupport.maxX) + lineMaskSpanPadding
+            let isOnLineBackbone = abs(yPosition - predictedLineY) <= lineMaskHalfThickness
+            return !(isInsideMaskedSpan && isOnLineBackbone)
+        }
     }
 }
 
@@ -369,6 +563,10 @@ private struct GrayscaleImage {
 private struct ConnectedComponent {
     let id: String
     let area: Int
+    let minX: Double
+    let maxX: Double
+    let minY: Double
+    let maxY: Double
     let width: Int
     let height: Int
     let centerX: Double
@@ -392,6 +590,10 @@ private struct ConnectedComponent {
 
         self.id = "\(minX)-\(minY)-\(maxX)-\(maxY)-\(points.count)"
         self.area = points.count
+        self.minX = Double(minX)
+        self.maxX = Double(maxX)
+        self.minY = Double(minY)
+        self.maxY = Double(maxY)
         self.width = (maxX - minX) + 1
         self.height = (maxY - minY) + 1
         self.centerX = weightedDarkness == 0 ? Double(minX + maxX) / 2.0 : weightedX / weightedDarkness
@@ -435,6 +637,9 @@ private struct DetectedLineSupport {
     let supportScore: Double
     let residualThickness: Double
     let averageSupportThickness: Double
+    let continuityRatio: Double
+    let maximumGapRatio: Double
+    let averageAlignmentError: Double
 
     var spanWidth: Double {
         Double(maxX - minX)
@@ -443,4 +648,10 @@ private struct DetectedLineSupport {
     func yPosition(atX x: Double) -> Double {
         (slope * x) + intercept
     }
+}
+
+private struct LineProfile {
+    let continuityRatio: Double
+    let maximumGapRatio: Double
+    let averageAlignmentError: Double
 }
