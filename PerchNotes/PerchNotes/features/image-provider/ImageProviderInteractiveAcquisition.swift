@@ -100,9 +100,14 @@ final class InteractiveImageAcquisitionResponder: ImageAcquisitionResponding {
 struct ImageProviderAcquisitionSheet: UIViewControllerRepresentable {
     let acquisitionMethod: ImageAcquisitionMethod
     let responder: InteractiveImageAcquisitionResponder
+    let onComplete: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(acquisitionMethod: acquisitionMethod, responder: responder)
+        Coordinator(
+            acquisitionMethod: acquisitionMethod,
+            responder: responder,
+            onComplete: onComplete
+        )
     }
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
@@ -134,18 +139,23 @@ struct ImageProviderAcquisitionSheet: UIViewControllerRepresentable {
     final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
         private let acquisitionMethod: ImageAcquisitionMethod
         private let responder: InteractiveImageAcquisitionResponder
+        private let onComplete: () -> Void
 
         init(
             acquisitionMethod: ImageAcquisitionMethod,
-            responder: InteractiveImageAcquisitionResponder
+            responder: InteractiveImageAcquisitionResponder,
+            onComplete: @escaping () -> Void
         ) {
             self.acquisitionMethod = acquisitionMethod
             self.responder = responder
+            self.onComplete = onComplete
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             responder.recordCancelled(for: acquisitionMethod)
-            picker.dismiss(animated: true)
+            picker.dismiss(animated: true) { [onComplete] in
+                onComplete()
+            }
         }
 
         func imagePickerController(
@@ -156,12 +166,16 @@ struct ImageProviderAcquisitionSheet: UIViewControllerRepresentable {
 
             guard let image else {
                 responder.recordFailure(for: acquisitionMethod)
-                picker.dismiss(animated: true)
+                picker.dismiss(animated: true) { [onComplete] in
+                    onComplete()
+                }
                 return
             }
 
             responder.recordCompletedImage(image, for: acquisitionMethod)
-            picker.dismiss(animated: true)
+            picker.dismiss(animated: true) { [onComplete] in
+                onComplete()
+            }
         }
     }
 }

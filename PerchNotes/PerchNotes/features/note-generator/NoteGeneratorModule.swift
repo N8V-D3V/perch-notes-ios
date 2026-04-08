@@ -67,6 +67,8 @@ struct DetectedPowerline {
     let supportCount: Int
     let averageBirdDistance: Double
     let centralityScore: Double
+    let residualLineThickness: Double
+    let averageSupportThickness: Double
 
     init(
         centerY: Double,
@@ -76,7 +78,9 @@ struct DetectedPowerline {
         spanWidth: Double = 0,
         supportCount: Int = 0,
         averageBirdDistance: Double = 0,
-        centralityScore: Double = 0
+        centralityScore: Double = 0,
+        residualLineThickness: Double = 0,
+        averageSupportThickness: Double = 0
     ) {
         self.centerY = centerY
         self.prominenceScore = prominenceScore
@@ -86,6 +90,8 @@ struct DetectedPowerline {
         self.supportCount = supportCount
         self.averageBirdDistance = averageBirdDistance
         self.centralityScore = centralityScore
+        self.residualLineThickness = residualLineThickness
+        self.averageSupportThickness = averageSupportThickness
     }
 }
 
@@ -145,7 +151,7 @@ struct NoteGeneratorModule: NoteGenerator {
                 }
 
                 log(
-                    "selected powerline: center_y=\(format(selectedPowerline.centerY)), slope=\(format(selectedPowerline.slope)), prominence_score=\(format(selectedPowerline.prominenceScore)), bird_count=\(selectedPowerline.birds.count), span_width=\(format(selectedPowerline.spanWidth)), support_count=\(selectedPowerline.supportCount), average_bird_distance=\(format(selectedPowerline.averageBirdDistance)), centrality_score=\(format(selectedPowerline.centralityScore))"
+                    "selected powerline: center_y=\(format(selectedPowerline.centerY)), slope=\(format(selectedPowerline.slope)), prominence_score=\(format(selectedPowerline.prominenceScore)), bird_count=\(selectedPowerline.birds.count), span_width=\(format(selectedPowerline.spanWidth)), support_count=\(selectedPowerline.supportCount), average_bird_distance=\(format(selectedPowerline.averageBirdDistance)), centrality_score=\(format(selectedPowerline.centralityScore)), residual_line_thickness=\(format(selectedPowerline.residualLineThickness)), average_support_thickness=\(format(selectedPowerline.averageSupportThickness))"
                 )
 
                 guard selectedPowerline.birds.isEmpty == false else {
@@ -259,6 +265,14 @@ struct NoteGeneratorModule: NoteGenerator {
             return lhs.averageBirdDistance < rhs.averageBirdDistance
         }
 
+        if abs(lhs.residualLineThickness - rhs.residualLineThickness) >= 0.0001 {
+            return lhs.residualLineThickness < rhs.residualLineThickness
+        }
+
+        if abs(lhs.averageSupportThickness - rhs.averageSupportThickness) >= 0.0001 {
+            return lhs.averageSupportThickness < rhs.averageSupportThickness
+        }
+
         if abs(lhs.centralityScore - rhs.centralityScore) >= 0.0001 {
             return lhs.centralityScore > rhs.centralityScore
         }
@@ -276,6 +290,8 @@ struct NoteGeneratorModule: NoteGenerator {
             && abs(lhs.spanWidth - rhs.spanWidth) < 0.0001
             && lhs.supportCount == rhs.supportCount
             && abs(lhs.averageBirdDistance - rhs.averageBirdDistance) < 0.0001
+            && abs(lhs.residualLineThickness - rhs.residualLineThickness) < 0.0001
+            && abs(lhs.averageSupportThickness - rhs.averageSupportThickness) < 0.0001
             && abs(lhs.centralityScore - rhs.centralityScore) < 0.0001
             && abs(lhs.slope - rhs.slope) < 0.0001
             && abs(lhs.centerY - rhs.centerY) < 0.0001
@@ -377,7 +393,7 @@ struct NoteGeneratorModule: NoteGenerator {
     }
 
     private func describeSelection(_ powerline: DetectedPowerline) -> String {
-        "center_y=\(format(powerline.centerY)), slope=\(format(powerline.slope)), prominence=\(format(powerline.prominenceScore)), birds=\(powerline.birds.count), span_width=\(format(powerline.spanWidth)), support_count=\(powerline.supportCount), avg_bird_distance=\(format(powerline.averageBirdDistance)), centrality=\(format(powerline.centralityScore))"
+        "center_y=\(format(powerline.centerY)), slope=\(format(powerline.slope)), prominence=\(format(powerline.prominenceScore)), birds=\(powerline.birds.count), span_width=\(format(powerline.spanWidth)), support_count=\(powerline.supportCount), avg_bird_distance=\(format(powerline.averageBirdDistance)), residual_line_thickness=\(format(powerline.residualLineThickness)), average_support_thickness=\(format(powerline.averageSupportThickness)), centrality=\(format(powerline.centralityScore))"
     }
 
     private func format(_ value: Double) -> String {

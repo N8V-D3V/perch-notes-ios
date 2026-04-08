@@ -42,6 +42,8 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
         let interceptBinSize = 3.0
         let minimumSpan = max(28.0, Double(image.width) * 0.35)
         let minimumSupport = max(18, image.width / 10)
+        let maximumResidualThickness = max(2.5, Double(image.height) * 0.018)
+        let maximumAverageSupportThickness = max(2.4, Double(image.height) * 0.015)
         let maximumCandidates = 16
         let slopes = stride(from: -0.35, through: 0.35, by: 0.025).map { value in
             Double(round(value * 1_000) / 1_000)
@@ -75,6 +77,15 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
                 return nil
             }
 
+            let observedVerticalRange = Double(accumulator.maxY - accumulator.minY)
+            let expectedVerticalRange = abs(accumulator.slope) * spanWidth
+            let residualThickness = max(0.0, observedVerticalRange - expectedVerticalRange)
+            let averageSupportThickness = Double(accumulator.supportCount) / max(1.0, spanWidth)
+            guard residualThickness <= maximumResidualThickness,
+                  averageSupportThickness <= maximumAverageSupportThickness else {
+                return nil
+            }
+
             let intercept = Double(accumulator.interceptBin) * interceptBinSize
             let centerX = (Double(accumulator.minX) + Double(accumulator.maxX)) / 2.0
             let centerY = (accumulator.slope * centerX) + intercept
@@ -83,6 +94,8 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
                 (spanWidth * 120.0)
                 + (Double(accumulator.supportCount) * 14.0)
                 + averageDarkness
+                - (residualThickness * 250.0)
+                - (averageSupportThickness * 400.0)
 
             return DetectedLineSupport(
                 slope: accumulator.slope,
@@ -91,7 +104,9 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
                 maxX: accumulator.maxX,
                 centerY: centerY,
                 supportCount: accumulator.supportCount,
-                supportScore: supportScore
+                supportScore: supportScore,
+                residualThickness: residualThickness,
+                averageSupportThickness: averageSupportThickness
             )
         }
 
@@ -106,6 +121,14 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
 
             if abs(lhs.spanWidth - rhs.spanWidth) >= 0.0001 {
                 return lhs.spanWidth > rhs.spanWidth
+            }
+
+            if abs(lhs.residualThickness - rhs.residualThickness) >= 0.0001 {
+                return lhs.residualThickness < rhs.residualThickness
+            }
+
+            if abs(lhs.averageSupportThickness - rhs.averageSupportThickness) >= 0.0001 {
+                return lhs.averageSupportThickness < rhs.averageSupportThickness
             }
 
             if abs(lhs.slope - rhs.slope) >= 0.0001 {
@@ -241,6 +264,8 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
             + (Double(lineSupport.supportCount) * 20.0)
             + (centralityScore * 10.0)
             - (averageBirdDistance * 50.0)
+            - (lineSupport.residualThickness * 200.0)
+            - (lineSupport.averageSupportThickness * 250.0)
             + lineSupport.supportScore
 
         return DetectedPowerline(
@@ -251,7 +276,9 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
             spanWidth: lineSupport.spanWidth,
             supportCount: lineSupport.supportCount,
             averageBirdDistance: averageBirdDistance,
-            centralityScore: centralityScore
+            centralityScore: centralityScore,
+            residualLineThickness: lineSupport.residualThickness,
+            averageSupportThickness: lineSupport.averageSupportThickness
         )
     }
 }
@@ -406,6 +433,8 @@ private struct DetectedLineSupport {
     let centerY: Double
     let supportCount: Int
     let supportScore: Double
+    let residualThickness: Double
+    let averageSupportThickness: Double
 
     var spanWidth: Double {
         Double(maxX - minX)

@@ -16,6 +16,7 @@ struct CorePipelineDemoView: View {
     @State private var pendingCameraPermissionState = CameraPermissionState(state: .UNKNOWN)
     @State private var acquisitionResponder = InteractiveImageAcquisitionResponder()
     @State private var isRequestingCameraPermission = false
+    @StateObject private var loopPlaybackController = CorePipelineLoopPlaybackController()
 
     private let demoRunner = CorePipelineDemoRunner()
 
@@ -36,7 +37,10 @@ struct CorePipelineDemoView: View {
             .sheet(item: $activeAcquisitionMethod, onDismiss: handleAcquisitionDismissal) { acquisitionMethod in
                 ImageProviderAcquisitionSheet(
                     acquisitionMethod: acquisitionMethod,
-                    responder: acquisitionResponder
+                    responder: acquisitionResponder,
+                    onComplete: {
+                        completeAcquisition(for: acquisitionMethod)
+                    }
                 )
                 .ignoresSafeArea()
             }
@@ -152,6 +156,8 @@ struct CorePipelineDemoView: View {
             )
 
             if let generatedAudio = run.result.audio_generation_outcome?.generated_audio {
+                playbackControls(for: generatedAudio)
+
                 Text("Loop ID: \(generatedAudio.audio_id)")
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
@@ -193,6 +199,26 @@ struct CorePipelineDemoView: View {
         }
     }
 
+    @ViewBuilder
+    private func playbackControls(for generatedAudio: GeneratedAudio) -> some View {
+        let isPlayingCurrentLoop =
+            loopPlaybackController.isPlaying
+            && loopPlaybackController.activeAudioReference == generatedAudio.audio_reference
+
+        VStack(alignment: .leading, spacing: 8) {
+            Button(isPlayingCurrentLoop ? "Stop Loop" : "Play Loop") {
+                loopPlaybackController.togglePlayback(audioReference: generatedAudio.audio_reference)
+            }
+            .buttonStyle(.borderedProminent)
+
+            if let playbackErrorMessage = loopPlaybackController.playbackErrorMessage {
+                Text(playbackErrorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private func imageSourceSummary(for run: CorePipelineDemoRun) -> String {
         switch run.request.image_acquisition_request.acquisition_method {
         case .CAPTURE_NEW_IMAGE:
@@ -215,12 +241,14 @@ struct CorePipelineDemoView: View {
     }
 
     private func startSelectionPipeline() {
+        loopPlaybackController.stopPlayback()
         pendingRunMethod = .SELECT_EXISTING_IMAGE
         pendingCameraPermissionState = CameraPermissionState(state: .UNKNOWN)
         activeAcquisitionMethod = .SELECT_EXISTING_IMAGE
     }
 
     private func startCapturePipeline() {
+        loopPlaybackController.stopPlayback()
         pendingRunMethod = .CAPTURE_NEW_IMAGE
 
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
@@ -273,8 +301,16 @@ struct CorePipelineDemoView: View {
             return
         }
 
+        completeAcquisition(for: pendingRunMethod)
+    }
+
+    private func completeAcquisition(for acquisitionMethod: ImageAcquisitionMethod) {
+        guard pendingRunMethod == acquisitionMethod else {
+            return
+        }
+
         runPipeline(
-            acquisitionMethod: pendingRunMethod,
+            acquisitionMethod: acquisitionMethod,
             cameraPermissionState: pendingCameraPermissionState
         )
     }
@@ -288,6 +324,11 @@ struct CorePipelineDemoView: View {
             cameraPermissionState: cameraPermissionState,
             acquisitionResponder: acquisitionResponder
         )
+
+        if latestRun?.result.final_pipeline_status != .SUCCESS {
+            loopPlaybackController.stopPlayback()
+        }
+
         pendingRunMethod = nil
         activeAcquisitionMethod = nil
     }

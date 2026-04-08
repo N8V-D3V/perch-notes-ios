@@ -269,6 +269,52 @@ struct PerchNotesTests {
     }
 
     @Test
+    func noteGeneratorAnalysisDrivenModeFailsForDenseNonWireScene() throws {
+        let sourceImage = try makeSyntheticSourceImage(
+            fileName: "note-generator-non-wire-scene",
+            width: 140,
+            height: 100,
+            draw: { context, width, _ in
+                context.setFillColor(gray: 0.0, alpha: 1.0)
+
+                context.setLineWidth(16)
+                context.move(to: CGPoint(x: 8, y: 18))
+                context.addLine(to: CGPoint(x: width - 12, y: 56))
+                context.strokePath()
+
+                let flowerRects = [
+                    CGRect(x: 10, y: 10, width: 18, height: 18),
+                    CGRect(x: 24, y: 18, width: 16, height: 16),
+                    CGRect(x: 40, y: 22, width: 18, height: 18),
+                    CGRect(x: 58, y: 28, width: 20, height: 20),
+                    CGRect(x: 78, y: 34, width: 18, height: 18),
+                    CGRect(x: 96, y: 40, width: 18, height: 18),
+                ]
+
+                for rect in flowerRects {
+                    context.fillEllipse(in: rect)
+                }
+
+                context.fill(CGRect(x: 12, y: 0, width: 6, height: 34))
+                context.fill(CGRect(x: 36, y: 8, width: 5, height: 38))
+                context.fill(CGRect(x: 62, y: 14, width: 6, height: 42))
+                context.fill(CGRect(x: 88, y: 18, width: 5, height: 46))
+                context.fill(CGRect(x: 112, y: 24, width: 6, height: 40))
+            }
+        )
+
+        let module = NoteGeneratorModule(mode: .analysisDriven(LocalImageNoteAnalyzer()))
+        let output = module.generateNotes(
+            source_image: sourceImage,
+            note_generation_request: NoteGenerationRequest(request_id: "non-wire-scene")
+        )
+
+        #expect(output.note_sequence == nil)
+        #expect(output.note_generation_result.status == .FAILED)
+        #expect(output.note_generation_result.reason == .NO_VALID_POWERLINE || output.note_generation_result.reason == .NO_BIRDS_DETECTED)
+    }
+
+    @Test
     func noteGeneratorAnalysisDrivenModeFailsWhenPowerlineHasNoBirds() throws {
         let sourceImage = try makeSyntheticSourceImage(
             fileName: "note-generator-no-birds",
