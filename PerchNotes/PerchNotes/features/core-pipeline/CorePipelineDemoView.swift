@@ -502,7 +502,7 @@ private struct CorePipelineFailurePresentation {
         _ reason: AudioGenerationFailureReason
     ) -> CorePipelineFailurePresentation {
         switch reason {
-        case .MISSING_NOTE_SEQUENCE, .EMPTY_NOTE_SEQUENCE, .INVALID_NOTE_TIMING, .INVALID_NOTE_SEQUENCE:
+        case .MISSING_NOTE_SEQUENCE, .EMPTY_NOTE_SEQUENCE, .INVALID_EVENT_ORDER, .INVALID_TIMING, .INVALID_NOTE_TIMING, .INVALID_NOTE_SEQUENCE:
             return CorePipelineFailurePresentation(
                 title: "We couldn’t turn that photo into a loop.",
                 message: "PerchNotes couldn’t build a playable loop from the notes for this image.",

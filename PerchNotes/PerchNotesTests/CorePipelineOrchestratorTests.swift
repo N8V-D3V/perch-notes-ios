@@ -195,10 +195,11 @@ private final class TrackingNoteGenerator: NoteGenerator {
         case .success:
             let noteSequence = NoteSequence(
                 source_image_id: source_image.image_id,
+                line_count: 1,
                 note_count: 2,
                 events: [
-                    NoteEvent(order_index: 0, pitch_rank: 2, start_offset_units: 0, duration_units: 1),
-                    NoteEvent(order_index: 1, pitch_rank: 1, start_offset_units: 1, duration_units: 1),
+                    NoteEvent(order_index: 0, pitch_ranks: [2], start_offset_units: 0, duration_units: 1),
+                    NoteEvent(order_index: 1, pitch_ranks: [1], start_offset_units: 1, duration_units: 1),
                 ]
             )
             return (

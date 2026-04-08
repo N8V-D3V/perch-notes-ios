@@ -26,13 +26,14 @@ struct NoteGenerationRequest: Sendable, Equatable {
 
 struct NoteEvent: Sendable, Equatable {
     let order_index: Int
-    let pitch_rank: Int
+    let pitch_ranks: [Int]
     let start_offset_units: Int
     let duration_units: Int
 }
 
 struct NoteSequence: Sendable, Equatable {
     let source_image_id: String
+    let line_count: Int
     let note_count: Int
     let events: [NoteEvent]
 }
@@ -184,6 +185,7 @@ struct NoteGeneratorModule: NoteGenerator {
                 let events = makeNoteEvents(from: orderedBirds)
                 let noteSequence = NoteSequence(
                     source_image_id: source_image.image_id,
+                    line_count: 1,
                     note_count: events.count,
                     events: events
                 )
@@ -210,13 +212,14 @@ struct NoteGeneratorModule: NoteGenerator {
         let events = (0..<eventCount).map { index in
             NoteEvent(
                 order_index: index,
-                pitch_rank: index + 1,
+                pitch_ranks: [index + 1],
                 start_offset_units: index,
                 duration_units: 1
             )
         }
         let noteSequence = NoteSequence(
             source_image_id: source_image.image_id,
+            line_count: 1,
             note_count: events.count,
             events: events
         )
@@ -353,7 +356,7 @@ struct NoteGeneratorModule: NoteGenerator {
             let pitchRank = rankByHeight[Int(bird.centerY.rounded())] ?? 1
             return NoteEvent(
                 order_index: index,
-                pitch_rank: pitchRank,
+                pitch_ranks: [pitchRank],
                 start_offset_units: index,
                 duration_units: 1
             )
@@ -384,10 +387,10 @@ struct NoteGeneratorModule: NoteGenerator {
     private func describe(_ noteSequence: NoteSequence) -> String {
         let eventsDescription = noteSequence.events
             .map { event in
-                "(order_index: \(event.order_index), pitch_rank: \(event.pitch_rank), start_offset_units: \(event.start_offset_units), duration_units: \(event.duration_units))"
+                "(order_index: \(event.order_index), pitch_ranks: \(event.pitch_ranks), start_offset_units: \(event.start_offset_units), duration_units: \(event.duration_units))"
             }
             .joined(separator: ", ")
-        return "NoteSequence(source_image_id: \(noteSequence.source_image_id), note_count: \(noteSequence.note_count), events: [\(eventsDescription)])"
+        return "NoteSequence(source_image_id: \(noteSequence.source_image_id), line_count: \(noteSequence.line_count), note_count: \(noteSequence.note_count), events: [\(eventsDescription)])"
     }
 
     private func describe(_ result: NoteGenerationResult) -> String {

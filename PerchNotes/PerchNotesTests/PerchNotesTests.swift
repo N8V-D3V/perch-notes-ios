@@ -159,12 +159,14 @@ struct PerchNotesTests {
         #expect(firstOutput.note_generation_result.status == .SUCCESS)
         #expect(firstOutput.note_generation_result.reason == nil)
         #expect(firstOutput.note_sequence == secondOutput.note_sequence)
+        #expect(firstOutput.note_sequence?.line_count == 1)
         #expect(firstOutput.note_sequence?.events.count == firstOutput.note_sequence?.note_count)
         #expect(firstOutput.note_sequence?.events.indices.allSatisfy { index in
             guard let event = firstOutput.note_sequence?.events[index] else {
                 return false
             }
             return event.order_index == index
+                && event.pitch_ranks == [index + 1]
                 && event.start_offset_units == index
                 && event.duration_units == 1
         } == true)
@@ -197,11 +199,12 @@ struct PerchNotesTests {
         #expect(firstOutput.note_generation_result.status == .SUCCESS)
         #expect(firstOutput.note_generation_result.reason == nil)
         #expect(firstOutput.note_sequence == secondOutput.note_sequence)
+        #expect(firstOutput.note_sequence?.line_count == 1)
         #expect(firstOutput.note_sequence?.note_count == 3)
         #expect(firstOutput.note_sequence?.events.map(\.order_index) == [0, 1, 2])
         #expect(firstOutput.note_sequence?.events.map(\.start_offset_units) == [0, 1, 2])
         #expect(firstOutput.note_sequence?.events.map(\.duration_units) == [1, 1, 1])
-        #expect(firstOutput.note_sequence?.events.map(\.pitch_rank) == [3, 1, 2])
+        #expect(firstOutput.note_sequence?.events.map(\.pitch_ranks) == [[3], [1], [2]])
     }
 
     @Test
@@ -244,6 +247,7 @@ struct PerchNotesTests {
         #expect(firstOutput.note_generation_result.status == .SUCCESS)
         #expect(firstOutput.note_generation_result.reason == nil)
         #expect(firstOutput.note_sequence == secondOutput.note_sequence)
+        #expect(firstOutput.note_sequence?.line_count == 1)
         #expect(firstOutput.note_sequence?.note_count == 2)
         #expect(firstOutput.note_sequence?.events.map(\.order_index) == [0, 1])
         #expect(firstOutput.note_sequence?.events.map(\.start_offset_units) == [0, 1])
@@ -444,11 +448,12 @@ struct PerchNotesTests {
         let module = AudioGeneratorModule()
         let noteSequence = NoteSequence(
             source_image_id: "stub-image-select-existing-image",
+            line_count: 3,
             note_count: 3,
             events: [
-                NoteEvent(order_index: 0, pitch_rank: 1, start_offset_units: 0, duration_units: 1),
-                NoteEvent(order_index: 1, pitch_rank: 2, start_offset_units: 1, duration_units: 1),
-                NoteEvent(order_index: 2, pitch_rank: 3, start_offset_units: 2, duration_units: 1),
+                NoteEvent(order_index: 0, pitch_ranks: [1], start_offset_units: 0, duration_units: 1),
+                NoteEvent(order_index: 1, pitch_ranks: [2], start_offset_units: 1, duration_units: 1),
+                NoteEvent(order_index: 2, pitch_ranks: [3], start_offset_units: 2, duration_units: 1),
             ]
         )
 
@@ -478,20 +483,123 @@ struct PerchNotesTests {
     }
 
     @Test
+    func audioGeneratorRendersPolyphonicEventsDeterministically() throws {
+        let module = AudioGeneratorModule()
+        let polyphonicSequence = NoteSequence(
+            source_image_id: "polyphonic-source-image",
+            line_count: 3,
+            note_count: 2,
+            events: [
+                NoteEvent(order_index: 0, pitch_ranks: [3, 2, 1], start_offset_units: 0, duration_units: 1),
+                NoteEvent(order_index: 1, pitch_ranks: [2, 1], start_offset_units: 1, duration_units: 1),
+            ]
+        )
+
+        let firstOutput = module.generateAudio(
+            note_sequence: polyphonicSequence,
+            audio_generation_request: AudioGenerationRequest(request_id: "audio-request-polyphonic-1")
+        )
+        let secondOutput = module.generateAudio(
+            note_sequence: polyphonicSequence,
+            audio_generation_request: AudioGenerationRequest(request_id: "audio-request-polyphonic-2")
+        )
+
+        let firstAudioData = try #require(audioData(from: firstOutput.generated_audio?.audio_reference))
+        let secondAudioData = try #require(audioData(from: secondOutput.generated_audio?.audio_reference))
+
+        #expect(firstOutput.audio_generation_result.status == .SUCCESS)
+        #expect(firstOutput.audio_generation_result.reason == nil)
+        #expect(firstOutput.generated_audio == secondOutput.generated_audio)
+        #expect(firstAudioData == secondAudioData)
+        #expect(firstOutput.generated_audio?.note_count == 2)
+    }
+
+    @Test
+    func audioGeneratorRendersMixedMonophonicAndPolyphonicEvents() {
+        let module = AudioGeneratorModule()
+        let mixedSequence = NoteSequence(
+            source_image_id: "mixed-source-image",
+            line_count: 3,
+            note_count: 3,
+            events: [
+                NoteEvent(order_index: 0, pitch_ranks: [3], start_offset_units: 0, duration_units: 1),
+                NoteEvent(order_index: 1, pitch_ranks: [3, 1], start_offset_units: 1, duration_units: 1),
+                NoteEvent(order_index: 2, pitch_ranks: [2], start_offset_units: 2, duration_units: 1),
+            ]
+        )
+
+        let output = module.generateAudio(
+            note_sequence: mixedSequence,
+            audio_generation_request: AudioGenerationRequest(request_id: "audio-request-mixed")
+        )
+
+        #expect(output.audio_generation_result.status == .SUCCESS)
+        #expect(output.audio_generation_result.reason == nil)
+        #expect(output.generated_audio?.note_count == mixedSequence.note_count)
+        #expect(output.generated_audio?.loopable == true)
+    }
+
+    @Test
     func audioGeneratorFailsWhenSequenceStructureIsInvalid() {
         let module = AudioGeneratorModule()
         let invalidSequence = NoteSequence(
             source_image_id: "stub-image-select-existing-image",
+            line_count: 2,
             note_count: 3,
             events: [
-                NoteEvent(order_index: 0, pitch_rank: 1, start_offset_units: 0, duration_units: 1),
-                NoteEvent(order_index: 2, pitch_rank: 2, start_offset_units: 2, duration_units: 1),
+                NoteEvent(order_index: 0, pitch_ranks: [1], start_offset_units: 0, duration_units: 1),
+                NoteEvent(order_index: 2, pitch_ranks: [2], start_offset_units: 2, duration_units: 1),
             ]
         )
 
         let output = module.generateAudio(
             note_sequence: invalidSequence,
             audio_generation_request: AudioGenerationRequest(request_id: "audio-request-invalid-structure")
+        )
+
+        #expect(output.generated_audio == nil)
+        #expect(output.audio_generation_result.status == .FAILED)
+        #expect(output.audio_generation_result.reason == .INVALID_EVENT_ORDER)
+    }
+
+    @Test
+    func audioGeneratorFailsWhenPitchRanksAreInvalid() {
+        let module = AudioGeneratorModule()
+        let invalidSequence = NoteSequence(
+            source_image_id: "invalid-pitches-source-image",
+            line_count: 3,
+            note_count: 2,
+            events: [
+                NoteEvent(order_index: 0, pitch_ranks: [2, 2], start_offset_units: 0, duration_units: 1),
+                NoteEvent(order_index: 1, pitch_ranks: [1], start_offset_units: 1, duration_units: 1),
+            ]
+        )
+
+        let output = module.generateAudio(
+            note_sequence: invalidSequence,
+            audio_generation_request: AudioGenerationRequest(request_id: "audio-request-invalid-pitches")
+        )
+
+        #expect(output.generated_audio == nil)
+        #expect(output.audio_generation_result.status == .FAILED)
+        #expect(output.audio_generation_result.reason == .INVALID_NOTE_SEQUENCE)
+    }
+
+    @Test
+    func audioGeneratorFailsWhenLineCountIsInvalid() {
+        let module = AudioGeneratorModule()
+        let invalidSequence = NoteSequence(
+            source_image_id: "invalid-line-count-source-image",
+            line_count: 0,
+            note_count: 1,
+            events: [
+                NoteEvent(order_index: 0, pitch_ranks: [1], start_offset_units: 0, duration_units: 1),
+            ]
+        )
+
+        let output = module.generateAudio(
+            note_sequence: invalidSequence,
+            audio_generation_request: AudioGenerationRequest(request_id: "audio-request-invalid-line-count")
         )
 
         #expect(output.generated_audio == nil)
@@ -504,6 +612,7 @@ struct PerchNotesTests {
         let module = AudioGeneratorModule()
         let emptySequence = NoteSequence(
             source_image_id: "stub-image-select-existing-image",
+            line_count: 1,
             note_count: 0,
             events: []
         )
@@ -515,7 +624,7 @@ struct PerchNotesTests {
 
         #expect(output.generated_audio == nil)
         #expect(output.audio_generation_result.status == .FAILED)
-        #expect(output.audio_generation_result.reason == .EMPTY_NOTE_SEQUENCE)
+        #expect(output.audio_generation_result.reason == .INVALID_NOTE_SEQUENCE)
     }
 
     @Test
@@ -523,10 +632,11 @@ struct PerchNotesTests {
         let module = AudioGeneratorModule()
         let invalidSequence = NoteSequence(
             source_image_id: "stub-image-select-existing-image",
+            line_count: 2,
             note_count: 2,
             events: [
-                NoteEvent(order_index: 0, pitch_rank: 1, start_offset_units: 0, duration_units: 1),
-                NoteEvent(order_index: 1, pitch_rank: 2, start_offset_units: 4, duration_units: 1),
+                NoteEvent(order_index: 0, pitch_ranks: [1], start_offset_units: 0, duration_units: 1),
+                NoteEvent(order_index: 1, pitch_ranks: [2], start_offset_units: 4, duration_units: 1),
             ]
         )
 
@@ -537,7 +647,7 @@ struct PerchNotesTests {
 
         #expect(output.generated_audio == nil)
         #expect(output.audio_generation_result.status == .FAILED)
-        #expect(output.audio_generation_result.reason == .INVALID_NOTE_TIMING)
+        #expect(output.audio_generation_result.reason == .INVALID_TIMING)
     }
 
     @Test

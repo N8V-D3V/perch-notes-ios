@@ -20,13 +20,13 @@ struct DeterministicWaveAudioRenderer {
 
         var samples: [Int16] = []
         samples.reserveCapacity(noteSequence.events.count * samplesPerUnit)
-        var mappedFrequencies: [Double] = []
+        var mappedFrequencies: [[Double]] = []
         mappedFrequencies.reserveCapacity(noteSequence.events.count)
 
         for event in noteSequence.events {
-            let frequency = frequency(for: event.pitch_rank)
-            mappedFrequencies.append(frequency)
-            appendSamples(for: frequency, into: &samples)
+            let eventFrequencies = event.pitch_ranks.map(frequency(for:))
+            mappedFrequencies.append(eventFrequencies)
+            appendSamples(for: eventFrequencies, into: &samples)
         }
 
         let waveData = makeWaveData(from: samples)
@@ -45,14 +45,18 @@ struct DeterministicWaveAudioRenderer {
         return 220.0 * pow(normalizedRank, 1.0 / 3.0)
     }
 
-    private func appendSamples(for frequency: Double, into samples: inout [Int16]) {
+    private func appendSamples(for frequencies: [Double], into samples: inout [Int16]) {
         let maxAmplitude = Double(Int16.max) * amplitudeScale
+        let oscillatorCount = max(1.0, Double(frequencies.count))
 
         for sampleIndex in 0..<samplesPerUnit {
             let time = Double(sampleIndex) / Double(sampleRate)
-            let phase = 2.0 * Double.pi * frequency * time
             let envelope = envelopeScale(for: sampleIndex)
-            let amplitude = sin(phase) * maxAmplitude * envelope
+            let mixedWave = frequencies.reduce(0.0) { partial, frequency in
+                let phase = 2.0 * Double.pi * frequency * time
+                return partial + sin(phase)
+            } / oscillatorCount
+            let amplitude = mixedWave * maxAmplitude * envelope
             let clampedAmplitude = max(Double(Int16.min), min(Double(Int16.max), amplitude))
             samples.append(Int16(clampedAmplitude.rounded()))
         }
@@ -115,17 +119,19 @@ struct DeterministicWaveAudioRenderer {
     private func stableAudioID(for noteSequence: NoteSequence) -> String {
         let serializedEvents = noteSequence.events
             .map { event in
-                "\(event.order_index),\(event.pitch_rank),\(event.start_offset_units),\(event.duration_units)"
+                let serializedPitches = event.pitch_ranks.map(String.init).joined(separator: ",")
+                return "\(event.order_index),[\(serializedPitches)],\(event.start_offset_units),\(event.duration_units)"
             }
             .joined(separator: ";")
-        let signature = "audio-v1|\(noteSequence.source_image_id)|\(noteSequence.note_count)|\(serializedEvents)"
+        let signature = "audio-v2|\(noteSequence.source_image_id)|\(noteSequence.line_count)|\(noteSequence.note_count)|\(serializedEvents)"
         let digest = SHA256.hash(data: Data(signature.utf8))
         return "audio-\(digest.map { String(format: "%02x", $0) }.joined())"
     }
 
-    private func mappingDescription(for events: [NoteEvent], frequencies: [Double]) -> String {
+    private func mappingDescription(for events: [NoteEvent], frequencies: [[Double]]) -> String {
         let pairs = zip(events, frequencies).map { event, frequency in
-            "(order_index: \(event.order_index), pitch_rank: \(event.pitch_rank), frequency_hz: \(String(format: "%.2f", frequency)))"
+            let renderedFrequencies = frequency.map { String(format: "%.2f", $0) }.joined(separator: ", ")
+            return "(order_index: \(event.order_index), pitch_ranks: \(event.pitch_ranks), frequencies_hz: [\(renderedFrequencies)])"
         }
         return pairs.joined(separator: ", ")
     }

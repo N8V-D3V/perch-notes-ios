@@ -15,6 +15,8 @@ enum AudioGenerationStatus: String, Sendable {
 enum AudioGenerationFailureReason: String, Sendable {
     case MISSING_NOTE_SEQUENCE
     case EMPTY_NOTE_SEQUENCE
+    case INVALID_EVENT_ORDER
+    case INVALID_TIMING
     case INVALID_NOTE_TIMING
     case INVALID_NOTE_SEQUENCE
     case AUDIO_GENERATION_FAILED
@@ -61,11 +63,11 @@ struct AudioGeneratorModule: AudioGenerator {
         audio_generation_request: AudioGenerationRequest
     ) -> (generated_audio: GeneratedAudio?, audio_generation_result: AudioGenerationResult) {
         log("input received: note_sequence=\(describe(note_sequence)), audio_generation_request=\(describe(audio_generation_request))")
-        log("validation path: checking note sequence presence, count, order, timing, and pitch values before rendering")
+        log("validation path: checking note sequence presence, line_count, count, order, timing, and polyphonic pitch structure before rendering")
 
         guard note_sequence.events.isEmpty == false, note_sequence.note_count > 0 else {
-            log("decision path: note sequence is empty, returning EMPTY_NOTE_SEQUENCE")
-            return failure(.EMPTY_NOTE_SEQUENCE)
+            log("decision path: note sequence is empty, returning INVALID_NOTE_SEQUENCE")
+            return failure(.INVALID_NOTE_SEQUENCE)
         }
 
         guard note_sequence.note_count == note_sequence.events.count else {
@@ -73,31 +75,49 @@ struct AudioGeneratorModule: AudioGenerator {
             return failure(.INVALID_NOTE_SEQUENCE)
         }
 
+        guard (1...7).contains(note_sequence.line_count) else {
+            log("decision path: line_count is outside the supported 1...7 range, returning INVALID_NOTE_SEQUENCE")
+            return failure(.INVALID_NOTE_SEQUENCE)
+        }
+
         let hasInvalidOrder = note_sequence.events.enumerated().contains { index, event in
             event.order_index != index
         }
         guard hasInvalidOrder == false else {
-            log("decision path: order_index values are not sequential within the returned event order, returning INVALID_NOTE_SEQUENCE")
-            return failure(.INVALID_NOTE_SEQUENCE)
+            log("decision path: order_index values are not sequential within the returned event order, returning INVALID_EVENT_ORDER")
+            return failure(.INVALID_EVENT_ORDER)
         }
 
         let hasInvalidTiming = note_sequence.events.contains { event in
             event.start_offset_units != event.order_index || event.duration_units != 1
         }
         guard hasInvalidTiming == false else {
-            log("decision path: timing validation failed because start_offset_units or duration_units violated the v0.1 timing contract, returning INVALID_NOTE_TIMING")
-            return failure(.INVALID_NOTE_TIMING)
+            log("decision path: timing validation failed because start_offset_units or duration_units violated the v0.1 timing contract, returning INVALID_TIMING")
+            return failure(.INVALID_TIMING)
         }
 
-        let hasInvalidPitch = note_sequence.events.contains { event in
-            event.pitch_rank <= 0
+        let hasInvalidPitchStructure = note_sequence.events.contains { event in
+            guard event.pitch_ranks.isEmpty == false,
+                  event.pitch_ranks.count <= note_sequence.line_count,
+                  event.pitch_ranks.count <= 7,
+                  event.pitch_ranks.allSatisfy({ $0 > 0 }) else {
+                return true
+            }
+
+            let uniquePitchCount = Set(event.pitch_ranks).count
+            guard uniquePitchCount == event.pitch_ranks.count else {
+                return true
+            }
+
+            let sortedHighToLow = event.pitch_ranks.sorted(by: >)
+            return sortedHighToLow != event.pitch_ranks
         }
-        guard hasInvalidPitch == false else {
-            log("decision path: at least one note event has a non-positive pitch_rank, returning INVALID_NOTE_SEQUENCE")
+        guard hasInvalidPitchStructure == false else {
+            log("decision path: at least one note event has invalid pitch_ranks content or line-count compatibility, returning INVALID_NOTE_SEQUENCE")
             return failure(.INVALID_NOTE_SEQUENCE)
         }
 
-        log("intended behavior: map each pitch_rank into a deterministic tone, render one PCM wave file, and return one playable loopable audio artifact")
+        log("intended behavior: map each event's pitch_ranks into deterministic simultaneous tones, render one PCM wave file, and return one playable loopable audio artifact")
 
         do {
             let renderedArtifact = try renderer.render(noteSequence: note_sequence)
@@ -128,10 +148,10 @@ struct AudioGeneratorModule: AudioGenerator {
     private func describe(_ noteSequence: NoteSequence) -> String {
         let eventsDescription = noteSequence.events
             .map { event in
-                "(order_index: \(event.order_index), pitch_rank: \(event.pitch_rank), start_offset_units: \(event.start_offset_units), duration_units: \(event.duration_units))"
+                "(order_index: \(event.order_index), pitch_ranks: \(event.pitch_ranks), start_offset_units: \(event.start_offset_units), duration_units: \(event.duration_units))"
             }
             .joined(separator: ", ")
-        return "NoteSequence(source_image_id: \(noteSequence.source_image_id), note_count: \(noteSequence.note_count), events: [\(eventsDescription)])"
+        return "NoteSequence(source_image_id: \(noteSequence.source_image_id), line_count: \(noteSequence.line_count), note_count: \(noteSequence.note_count), events: [\(eventsDescription)])"
     }
 
     private func describe(_ generatedAudio: GeneratedAudio) -> String {
