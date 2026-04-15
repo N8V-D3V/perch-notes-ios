@@ -23,7 +23,7 @@ Implements protocols as concrete modules.
 
 - Contract
 - Protocol definitions
-- Implementation instructions
+- Implementation plan
 
 ---
 

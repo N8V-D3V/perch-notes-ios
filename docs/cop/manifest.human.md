@@ -18,7 +18,7 @@ Instead of starting with code, we start with clearly defined contracts that desc
 - what success looks like
 - what failure looks like
 
-Everything else — interfaces, modules, orchestration, and implementation — is derived from these contracts.
+Everything else — interfaces, architecture, modules, orchestration, and implementation — is derived from these contracts.
 
 ---
 
@@ -73,6 +73,7 @@ Nothing important should be implicit.
 ### 6. Systems are composed, not tangled
 Contracts lead to:
 - protocols (capabilities)
+- architecture (implementation planning)
 - modules (implementations)
 - orchestrators (coordination)
 
@@ -121,7 +122,24 @@ You now understand what you are building.
 
 ---
 
-### 2. Stubbed System Demo 🔧
+### 2. Protocol and Architecture Planning 🧭
+
+Before coding begins:
+
+- Protocols must define the required capabilities
+- Architecture must map protocols to modules
+- Dependencies, orchestration boundaries, and data flow must be explicit
+- Architectural risks and guardrails must be identified
+
+**Green Flag:**
+> The implementation plan is clear before code is written
+
+**Celebrate:**  
+You know how the system will be built.
+
+---
+
+### 3. Stubbed System Demo 🔧
 
 Before real implementation:
 
@@ -138,7 +156,7 @@ You have a working system — before writing real logic.
 
 ---
 
-### 3. Implementation Demo 🚀
+### 4. Implementation Demo 🚀
 
 After stub validation:
 
@@ -154,7 +172,7 @@ You now have a working, real system.
 
 ---
 
-### 4. Iterate 🔁
+### 5. Iterate 🔁
 
 Systems evolve through iteration:
 
@@ -164,7 +182,7 @@ Systems evolve through iteration:
 
 Each iteration repeats the cycle:
 
-> Contract Alignment → Stub Demo → Implementation → Validation
+> Contract Alignment → Protocol and Architecture Planning → Stub Demo → Implementation → Validation
 
 ---
 

@@ -73,6 +73,17 @@ This project follows these principles:
 
 ---
 
+## Standard COP Workflow
+
+1. Contract Agent
+2. Protocol Agent
+3. Architecture Agent
+4. Module Agent
+5. Orchestrator Agent
+6. Validation Agent
+
+---
+
 ## Status
 
 Early experimental phase.

@@ -23,6 +23,7 @@ Coordinates modules to fulfill contract-defined behavior.
 
 - Contract
 - Protocol definitions
+- Orchestration plan
 - Available modules
 
 ---

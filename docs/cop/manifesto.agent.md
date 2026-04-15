@@ -20,19 +20,22 @@ You must follow these rules strictly.
 
 ---
 
-## 2. Do not skip layers
+## 2. Do not skip workflow stages
 
-You must respect the COP structure:
+You must respect the COP structure and workflow:
 
 1. Contracts
 2. Protocols (interfaces)
-3. Modules (implementations)
-4. Orchestrators (coordination)
+3. Architecture (implementation planning)
+4. Modules (implementations)
+5. Orchestrators (coordination)
+6. Validation
 
 You must not:
 - implement modules without a contract
 - bypass protocols
 - create hidden dependencies
+- proceed without validation
 
 ---
 
@@ -161,10 +164,12 @@ A stub implementation:
 You must follow this sequence:
 
 1. Contract Alignment
-2. Stub Module Implementation
-3. Stub System Demo
-4. Real Implementation
-5. Validation
+2. Protocol Definition
+3. Architecture Planning
+4. Stub Module Implementation
+5. Stub System Demo
+6. Real Implementation
+7. Validation
 
 ---
 
@@ -205,4 +210,3 @@ You are not just building code.
 You are:
 
 > validating system behavior step-by-step before making it real
-

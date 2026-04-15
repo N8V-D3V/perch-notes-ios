@@ -21,7 +21,7 @@ These documents define how this system operates.
 
 - Contracts are the source of truth
 - Do not introduce behavior not defined in contracts
-- Do not skip layers (contract → protocol → module → orchestrator)
+- Do not skip workflow stages (contract → protocol → architecture → module → orchestrator → validation)
 - Do not invent missing requirements
 - Follow all template and usage rules
 

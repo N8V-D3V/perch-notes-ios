@@ -14,6 +14,11 @@ An interface that represents a capability required to fulfill a contract.
 
 ---
 
+## Architecture
+An implementation plan that maps protocols to modules, dependencies, orchestration boundaries, and data flow.
+
+---
+
 ## Module
 An implementation that fulfills one or more protocols.
 
