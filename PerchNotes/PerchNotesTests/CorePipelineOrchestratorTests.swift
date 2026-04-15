@@ -131,12 +131,16 @@ struct CorePipelineOrchestratorTests {
                 FixedNoteImageAnalyzer(
                     result: .success([
                         DetectedPowerline(
+                            intercept: 42,
+                            minX: 0,
+                            maxX: 80,
                             centerY: 42,
                             prominenceScore: 20_100,
                             birds: [
-                                DetectedBird(centerX: 12, centerY: 30, darknessScore: 120),
-                                DetectedBird(centerX: 40, centerY: 20, darknessScore: 140),
-                            ]
+                                DetectedBird(centerX: 12, centerY: 40, darknessScore: 120),
+                                DetectedBird(centerX: 40, centerY: 41, darknessScore: 140),
+                            ],
+                            spanWidth: 80
                         )
                     ])
                 )

@@ -22,6 +22,7 @@ struct CorePipelineEntryView: View {
     @StateObject private var loopPlaybackController = CorePipelineLoopPlaybackController()
 
     private let entryRunner = CorePipelineEntryRunner()
+    private let previewMaximumSide: CGFloat = 320
 
     var body: some View {
         NavigationStack {
@@ -47,6 +48,11 @@ struct CorePipelineEntryView: View {
                 .ignoresSafeArea()
             }
         }
+    }
+
+    private var previewSquareSide: CGFloat {
+        let horizontalPadding: CGFloat = 40
+        return min(previewMaximumSide, max(220, UIScreen.main.bounds.width - horizontalPadding))
     }
 
     private var headerSection: some View {
@@ -171,13 +177,13 @@ struct CorePipelineEntryView: View {
                 )
             }
         }
-        .frame(maxWidth: .infinity)
-        .aspectRatio(1, contentMode: .fit)
+        .frame(width: previewSquareSide, height: previewSquareSide)
         .overlay {
             RoundedRectangle(cornerRadius: 24)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: 24))
+        .frame(maxWidth: .infinity)
     }
 
     private var centralActionSection: some View {

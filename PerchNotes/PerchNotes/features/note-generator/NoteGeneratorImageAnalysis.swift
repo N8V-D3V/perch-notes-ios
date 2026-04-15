@@ -40,13 +40,15 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
         let lineThreshold: UInt8 = 150
         let interceptBinSize = 3.0
         let minimumSpan = max(28.0, Double(image.width) * 0.35)
-        let minimumSupport = max(18, image.width / 10)
+        let minimumSupport = max(14, image.width / 11)
         let maximumResidualThickness = max(2.5, Double(image.height) * 0.018)
         let maximumAverageSupportThickness = max(2.4, Double(image.height) * 0.015)
-        let minimumContinuityRatio = 0.46
+        let minimumContinuityRatio = 0.42
         let maximumGapRatio = 0.38
         let maximumAlignmentError = max(3.2, Double(image.height) * 0.02)
         let maximumCandidates = 16
+        let duplicateSlopeTolerance = 0.03
+        let duplicateInterceptTolerance = max(6.0, Double(image.height) * 0.04)
         let slopes = stride(from: -0.35, through: 0.35, by: 0.025).map { value in
             Double(round(value * 1_000) / 1_000)
         }
@@ -172,8 +174,8 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
         var deduplicatedSupports: [DetectedLineSupport] = []
         for support in sortedSupports {
             let isDuplicate = deduplicatedSupports.contains { existing in
-                abs(existing.slope - support.slope) < 0.05
-                    && abs(existing.intercept - support.intercept) < 10.0
+                abs(existing.slope - support.slope) < duplicateSlopeTolerance
+                    && abs(existing.intercept - support.intercept) < duplicateInterceptTolerance
             }
 
             if isDuplicate == false {
@@ -349,16 +351,17 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
         from lineSupport: DetectedLineSupport,
         image: GrayscaleImage
     ) -> DetectedPowerline? {
-        let verticalBirdDistance = max(18.0, Double(image.height) * 0.17)
+        let verticalBirdDistance = max(20.0, Double(image.height) * 0.20)
         let maximumBirdWidth = max(10, image.width / 4)
         let maximumBirdHeight = max(10, image.height / 4)
         let horizontalPadding = max(14.0, Double(image.width) * 0.05)
-        let belowLineAllowance = max(6.0, Double(image.height) * 0.05)
-        let aboveLineAllowance = max(18.0, Double(image.height) * 0.18)
+        let belowLineAllowance = max(8.0, Double(image.height) * 0.06)
+        let aboveLineAllowance = max(22.0, Double(image.height) * 0.22)
         let allComponents = detectBirdComponents(near: lineSupport, in: image)
+        let protrusionBirds = detectPerchedBirdPeaks(near: lineSupport, in: image)
 
         let birdComponents = allComponents.filter { component in
-            guard component.area >= 8,
+            guard component.area >= 4,
                   component.width >= 2,
                   component.height >= 2,
                   component.width <= maximumBirdWidth,
@@ -395,22 +398,23 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
             return component.width < Int(max(14.0, lineSupport.spanWidth * 0.45))
         }
 
-        guard birdComponents.isEmpty == false else {
-            return nil
-        }
-
-        let birds = birdComponents.map { component in
+        let componentBirds = birdComponents.map { component in
             DetectedBird(
                 centerX: component.centerX,
                 centerY: component.centerY,
                 darknessScore: component.darknessScore
             )
         }
+        let birds = mergeBirdDetections(componentBirds + protrusionBirds)
+
+        guard birds.isEmpty == false else {
+            return nil
+        }
 
         let averageBirdDistance =
-            birdComponents
-            .map { component in abs(component.centerY - lineSupport.yPosition(atX: component.centerX)) }
-            .reduce(0.0, +) / Double(birdComponents.count)
+            birds
+            .map { bird in abs(bird.centerY - lineSupport.yPosition(atX: bird.centerX)) }
+            .reduce(0.0, +) / Double(birds.count)
         let verticalCenter = Double(image.height) / 2.0
         let centralityScore = max(0.0, 1.0 - (abs(lineSupport.centerY - verticalCenter) / max(verticalCenter, 1.0)))
         let prominenceScore =
@@ -427,6 +431,9 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
             + lineSupport.supportScore
 
         return DetectedPowerline(
+            intercept: lineSupport.intercept,
+            minX: Double(lineSupport.minX),
+            maxX: Double(lineSupport.maxX),
             centerY: lineSupport.centerY,
             prominenceScore: prominenceScore,
             birds: birds,
@@ -447,9 +454,9 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
         near lineSupport: DetectedLineSupport,
         in image: GrayscaleImage
     ) -> [ConnectedComponent] {
-        let birdThreshold: UInt8 = 145
+        let birdThreshold: UInt8 = 160
         let horizontalPadding = max(14.0, Double(image.width) * 0.05)
-        let searchTopAllowance = max(22.0, Double(image.height) * 0.22)
+        let searchTopAllowance = max(24.0, Double(image.height) * 0.24)
         let searchBottomAllowance = max(8.0, Double(image.height) * 0.06)
         let lineMaskHalfThickness = max(1.0, min(2.0, lineSupport.averageSupportThickness.rounded()))
         let lineMaskSpanPadding = max(8.0, Double(image.width) * 0.02)
@@ -473,6 +480,143 @@ struct LocalImageNoteAnalyzer: NoteImageAnalyzing {
                 && xPosition <= Double(lineSupport.maxX) + lineMaskSpanPadding
             let isOnLineBackbone = abs(yPosition - predictedLineY) <= lineMaskHalfThickness
             return !(isInsideMaskedSpan && isOnLineBackbone)
+        }
+    }
+
+    private func detectPerchedBirdPeaks(
+        near lineSupport: DetectedLineSupport,
+        in image: GrayscaleImage
+    ) -> [DetectedBird] {
+        let detectionThreshold: UInt8 = 175
+        let scanTopAllowance = max(18, image.height / 7)
+        let scanBottomAllowance = max(5, image.height / 30)
+        let lineMaskHalfThickness = max(1, Int(lineSupport.averageSupportThickness.rounded()))
+        let xRadius = 2
+        let minimumPeakSeparation = max(5, image.width / 48)
+        let minimumPeakScore = 650.0
+
+        let signals: [(x: Int, score: Double, centerY: Double)] = (lineSupport.minX...lineSupport.maxX).map { x in
+            let predictedLineY = lineSupport.yPosition(atX: Double(x))
+            let minY = max(0, Int(predictedLineY.rounded()) - scanTopAllowance)
+            let maxY = min(image.height - 1, Int(predictedLineY.rounded()) + scanBottomAllowance)
+            let minX = max(0, x - xRadius)
+            let maxX = min(image.width - 1, x + xRadius)
+
+            var score = 0.0
+            var weightedY = 0.0
+
+            if minY <= maxY {
+                for sampleY in minY...maxY {
+                    let distanceAboveLine = predictedLineY - Double(sampleY)
+                    if distanceAboveLine <= Double(lineMaskHalfThickness) {
+                        continue
+                    }
+
+                    for sampleX in minX...maxX {
+                        let intensity = image.intensity(x: sampleX, y: sampleY)
+                        guard intensity <= detectionThreshold else {
+                            continue
+                        }
+
+                        let darkness = Double(255 - intensity)
+                        let verticalWeight = min(1.6, 1.0 + (distanceAboveLine / max(Double(scanTopAllowance), 1.0)))
+                        let weightedDarkness = darkness * verticalWeight
+                        score += weightedDarkness
+                        weightedY += Double(sampleY) * weightedDarkness
+                    }
+                }
+            }
+
+            let centerY = score == 0 ? predictedLineY - 2.0 : weightedY / score
+            return (x: x, score: score, centerY: centerY)
+        }
+
+        guard signals.isEmpty == false else {
+            return []
+        }
+
+        let smoothedSignals: [(x: Int, score: Double, centerY: Double)] = signals.indices.map { index in
+            let lowerBound = max(0, index - 2)
+            let upperBound = min(signals.count - 1, index + 2)
+            let window = signals[lowerBound...upperBound]
+            let totalScore = window.reduce(0.0) { $0 + $1.score }
+            let totalCenterY = window.reduce(0.0) { $0 + ($1.centerY * max($1.score, 1.0)) }
+            return (
+                x: signals[index].x,
+                score: totalScore / Double(window.count),
+                centerY: totalCenterY / window.reduce(0.0) { $0 + max($1.score, 1.0) }
+            )
+        }
+
+        var peaks: [(x: Int, score: Double, centerY: Double)] = []
+        for index in 1..<(smoothedSignals.count - 1) {
+            let previous = smoothedSignals[index - 1]
+            let current = smoothedSignals[index]
+            let next = smoothedSignals[index + 1]
+
+            guard current.score >= minimumPeakScore,
+                  current.score >= previous.score,
+                  current.score >= next.score else {
+                continue
+            }
+
+            if let lastPeak = peaks.last,
+               current.x - lastPeak.x < minimumPeakSeparation {
+                if current.score > lastPeak.score {
+                    peaks[peaks.count - 1] = current
+                }
+            } else {
+                peaks.append(current)
+            }
+        }
+
+        return peaks.map { peak in
+            DetectedBird(
+                centerX: Double(peak.x),
+                centerY: peak.centerY,
+                darknessScore: peak.score
+            )
+        }
+    }
+
+    private func mergeBirdDetections(_ birds: [DetectedBird]) -> [DetectedBird] {
+        let sortedBirds = birds.sorted { lhs, rhs in
+            if abs(lhs.centerX - rhs.centerX) >= 0.0001 {
+                return lhs.centerX < rhs.centerX
+            }
+
+            if abs(lhs.centerY - rhs.centerY) >= 0.0001 {
+                return lhs.centerY < rhs.centerY
+            }
+
+            return lhs.darknessScore > rhs.darknessScore
+        }
+
+        var clusters: [[DetectedBird]] = []
+        for bird in sortedBirds {
+            if let index = clusters.firstIndex(where: { cluster in
+                guard let anchor = cluster.first else {
+                    return false
+                }
+
+                return abs(anchor.centerX - bird.centerX) <= 6.0
+                    && abs(anchor.centerY - bird.centerY) <= 6.0
+            }) {
+                clusters[index].append(bird)
+            } else {
+                clusters.append([bird])
+            }
+        }
+
+        return clusters.map { cluster in
+            let darknessTotal = cluster.reduce(0.0) { $0 + $1.darknessScore }
+            let weightedCenterX = cluster.reduce(0.0) { $0 + ($1.centerX * $1.darknessScore) }
+            let weightedCenterY = cluster.reduce(0.0) { $0 + ($1.centerY * $1.darknessScore) }
+            return DetectedBird(
+                centerX: darknessTotal == 0 ? cluster[0].centerX : weightedCenterX / darknessTotal,
+                centerY: darknessTotal == 0 ? cluster[0].centerY : weightedCenterY / darknessTotal,
+                darknessScore: darknessTotal == 0 ? cluster[0].darknessScore : darknessTotal
+            )
         }
     }
 }
